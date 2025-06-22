@@ -1,0 +1,10 @@
+google-adk>=0.1.0
+google-cloud-aiplatform>=1.38.0
+google-cloud-discoveryengine>=0.11.10
+fastapi
+uvicorn
+pydantic
+gunicorn
+nest-asyncio
+python-dotenv
+asyncio

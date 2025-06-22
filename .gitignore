@@ -192,3 +192,8 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+agent/bringo_chef_ai_agent/auth/formare-ai-gcp.json
+agent/bringo_chef_ai_agent/bash/access.sh
+agent/bringo_chef_ai_agent/bash/deploy.sh
+agent/bringo_chef_ai_agent/auth/discovery.sh
+.gitignore
