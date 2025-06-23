@@ -55,8 +55,12 @@ def analyze_recipe_for_tutorial(recipe_json: str) -> str:
     """
     logger.info("🧠 Analyzing recipe for tutorial creation...")
     
+    # Strip any leading/trailing whitespace or newlines that might interfere with JSON parsing
+    recipe_json_stripped = recipe_json.strip()
+    logger.debug(f"Received recipe_json (stripped, first 500 chars): {recipe_json_stripped[:500]}")
+
     try:
-        recipe_data = json.loads(recipe_json)
+        recipe_data = json.loads(recipe_json_stripped)
     except json.JSONDecodeError:
         # Attempt to unescape if it's a string literal containing escaped JSON
         try:
@@ -186,8 +190,12 @@ async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) 
     """
     logger.info("🎨 Generating DYNAMIC 7-step visual tutorial from actual recipe...")
     
+    # Strip any leading/trailing whitespace or newlines that might interfere with JSON parsing
+    recipe_json_stripped = recipe_json.strip()
+    logger.debug(f"Received recipe_json (stripped, first 500 chars) in generate_visual_tutorial: {recipe_json_stripped[:500]}")
+
     try:
-        recipe_data = json.loads(recipe_json)
+        recipe_data = json.loads(recipe_json_stripped)
     except json.JSONDecodeError:
         # Attempt to unescape if it's a string literal containing escaped JSON
         try:

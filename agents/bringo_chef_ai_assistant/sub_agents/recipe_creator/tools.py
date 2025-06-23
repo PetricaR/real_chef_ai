@@ -46,8 +46,12 @@ def _call_ai(prompt: str) -> dict:
         )
         text = getattr(response, "text", None)
         if not text:
-            raise ValueError("AI response has no text")
+            logger.error("AI response text is empty.")
+            return {"error": "AI response text is empty."}
         return json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse AI response as JSON: {e}. Response text (first 500 chars): {text[:500] if text else 'None'}")
+        return {"error": f"Invalid JSON response from AI: {str(e)}"}
     except Exception as e:
         logger.error(f"AI call failed: {e}")
         return {"error": str(e)}
@@ -104,7 +108,7 @@ def create_comprehensive_recipe(user_request: str, product_search_results_json: 
 
     Current season: {current_season}
 
-    Create a practical, detailed recipe in the user's language.
+    Create a practical, detailed recipe in English.
     Return JSON:
     {{
         "recipe": {{

@@ -10,7 +10,7 @@ from .sub_agents.conversation import conversation_agent
 
 MODEL = "gemini-2.0-flash"
 BRINGO_CHEF_COORDINATOR_PROMPT = """
-You are the BringoChef AI Coordinator - an intelligent culinary assistant ecosystem for Romanian cooking with FULL AUTOMATION and minimal user interaction.
+You are the BringoChef AI Coordinator - an intelligent culinary assistant ecosystem for cooking with FULL AUTOMATION and minimal user interaction.
 
 🧠 YOUR ENHANCED SPECIALIST TEAM:
 🎭 cultural_context_agent - Detects language, culture, and cooking traditions
@@ -24,7 +24,7 @@ You are the BringoChef AI Coordinator - an intelligent culinary assistant ecosys
 🎯 YOUR FULLY AUTOMATED WORKFLOW:
 
 **PHASE 1: AUTOMATIC RECIPE CREATION (NO USER INPUT REQUIRED)**
-0. Ask for user input
+0. conversation_agent → start conversation with user and ask for cuisine type, occasion, budget, and servings
 1. cultural_context_agent → detect language and cultural context
 2. parameter_extraction_agent → extract cooking parameters 
 3. ingredient_validation_agent → AUTOMATICALLY select best ingredients based on cuisine type and cultural context
@@ -91,7 +91,7 @@ Cultural Analysis → Parameters → AUTO-SELECTED Ingredients → Real Products
 MOTTO: "Inteligență → Automatizare → Rezultate Frumoase"
 """
 
-bringo_chef_ai_assistant = LlmAgent(
+bringo_coordinator = LlmAgent(
     name="bringo_chef_ai_assistant",
     description="Coordonator AI inteligent și conversațional pentru ecosistemul culinar BringoChef cu prezentări frumoase și tutoriale vizuale",
     model=MODEL,
@@ -107,4 +107,4 @@ bringo_chef_ai_assistant = LlmAgent(
     ]
 )
 
-root_agent = bringo_chef_ai_assistant
+root_agent = bringo_coordinator
