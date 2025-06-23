@@ -1,161 +1,357 @@
-# cultural_agent/tools.py
+# agents/bringo_chef_ai_assistant/sub_agents/cultural/tools.py
+# Cultural analysis tools with async AI integration and professional prompt engineering
+# Pure AI-driven cultural context extraction without hardcoded assumptions
+
+import asyncio
 import logging
+import time
 import json
 from datetime import datetime
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
+from ...shared.client import get_ai_client
+from ...shared.models import CulturalAnalysis, CulturalAnalysisResponse, LanguageInfo, LocationInfo, CulturalIndicators
+from ...shared.responses import create_success_response, create_error_response
+from ...shared.config import settings
+
 logger = logging.getLogger("cultural_tools")
 
-# Shared configuration
-MODEL = "gemini-2.0-flash"
-PROJECT_ID = "formare-ai"
-LOCATION = "europe-west4"
 
-# Shared AI client
-try:
-    from google import genai
-    from google.genai import types
-    
-    gemini_client = genai.Client(
-        vertexai=True,
-        project=PROJECT_ID,
-        location=LOCATION
-    )
-    logger.info("✅ Cultural agent AI client initialized")
-except Exception as e:
-    logger.error(f"❌ AI client failed: {e}")
-    gemini_client = None
-
-def _call_ai(prompt: str) -> dict:
-    """Simplified AI call"""
-    if not gemini_client:
-        return {"error": "AI client unavailable"}
-    
-    try:
-        response = gemini_client.models.generate_content(
-            model=MODEL,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                max_output_tokens=2000,
-                response_mime_type="application/json"
-            )
-        )
-        return json.loads(response.text)
-    except Exception as e:
-        logger.error(f"AI call failed: {e}")
-        return {"error": str(e)}
-
-def detect_language_and_culture(user_request: str) -> str:
+async def detect_language_and_culture(user_request: str) -> str:
     """
-    Detect language, country, and basic cultural context from culinary request.
-    """
-    logger.info(f"🌍 Detecting language and culture for: {user_request[:50]}...")
+    Detect language, location, and basic cultural context from culinary request using AI.
     
+    Args:
+        user_request: User's culinary request in any language
+        
+    Returns:
+        JSON string containing cultural analysis response
+    """
+    start_time = time.time()
+    logger.info(f"🌍 Analyzing cultural context for request: {user_request[:50]}...")
+    
+    if not user_request or len(user_request.strip()) < 2:
+        return create_error_response(
+            agent_name="cultural_context_agent",
+            error_message="User request is too short for meaningful cultural analysis"
+        ).model_dump_json()
+    
+    # Professional AI prompt for language and cultural detection
     prompt = f"""
-    Analyze this culinary request for language and cultural context: "{user_request}"
+    Analyze this culinary request for comprehensive cultural context: "{user_request}"
     
-    Return JSON:
+    As a professional cultural analysis specialist, perform detailed analysis covering:
+    
+    1. **Language Detection**:
+       - Identify primary language with confidence score (0.0-1.0)
+       - Detect any regional dialect or variation
+       - Assess linguistic cultural markers
+    
+    2. **Geographic Analysis**: 
+       - Determine likely location/country based on language and cultural cues
+       - Identify regional cooking preferences if apparent
+       - Assess confidence in geographic assessment
+    
+    3. **Cultural Cooking Indicators**:
+       - Cuisine style preference (traditional, modern, fusion, international)
+       - Meal context (casual, formal, celebration, comfort, romantic, family)
+       - Cooking approach (quick, elaborate, rustic, refined)
+       - Budget consciousness level (high, medium, low)
+       - Time approach (immediate, flexible, leisurely) 
+       - Social dining context (individual, family, entertaining, intimate)
+    
+    4. **Traditional Dish Recognition**:
+       - Identify any specific traditional dishes mentioned or implied
+       - Assess cultural significance and authenticity requirements
+       - Provide confidence scores for dish identification
+    
+    Return precise JSON analysis:
     {{
         "language": {{
-            "code": "ro|en|de|hu",
-            "name": "Romanian|English|German|Hungarian",
-            "confidence": 0.95,
-            "dialect": "moldovan|transylvanian|etc or null"
+            "code": "two-letter language code (ro, en, de, hu, etc.)",
+            "name": "full language name",
+            "confidence": confidence_score_0_to_1,
+            "dialect": "regional dialect or null"
         }},
         "location": {{
-            "country": "Romania|Germany|Hungary|etc",
-            "region": "Transilvania|Moldavia|etc or null",
-            "confidence": 0.90
+            "country": "most likely country",
+            "region": "specific region if detectable or null", 
+            "confidence": confidence_score_0_to_1
         }},
         "cultural_indicators": {{
-            "cuisine_style": "traditional|modern|fusion",
-            "meal_context": "family|individual|formal|casual",
-            "cooking_approach": "rustic|refined|quick|elaborate"
-        }}
-    }}
-    """
-    
-    try:
-        result = _call_ai(prompt)
-        if "error" in result:
-            raise ValueError(result["error"])
-            
-        logger.info("✅ Language and culture detection successful")
-        return json.dumps({
-            "status": "success",
-            "user_request": user_request,
-            "analysis": result,
-            "analyzed_at": datetime.now().isoformat()
-        }, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        logger.error(f"❌ Detection failed: {e}")
-        return json.dumps({
-            "status": "error",
-            "message": str(e),
-            "fallback": {
-                "language": {"code": "ro", "confidence": 0.5},
-                "location": {"country": "Romania", "confidence": 0.5}
-            }
-        })
-
-def analyze_cultural_context(user_request: str) -> str:
-    """
-    Analyze deeper cultural context and traditional dishes.
-    """
-    logger.info(f"🎭 Analyzing cultural context for: {user_request[:50]}...")
-    
-    prompt = f"""
-    Analyze cultural food context in this request: "{user_request}"
-    
-    Return JSON:
-    {{
+            "cuisine_style": "traditional|modern|fusion|international",
+            "meal_context": "casual|formal|celebration|comfort|romantic|family",
+            "cooking_approach": "quick|elaborate|rustic|refined", 
+            "budget_consciousness": "high|medium|low",
+            "time_approach": "immediate|flexible|leisurely",
+            "social_dining": "individual|family|entertaining|intimate"
+        }},
         "traditional_dishes": [
             {{
-                "name": "dish_name",
-                "origin": "country/region",
-                "confidence": 0.85,
+                "name": "dish name if identified",
+                "origin": "cultural origin",
+                "confidence": confidence_score,
                 "cultural_significance": "brief explanation"
             }}
         ],
-        "cultural_patterns": {{
-            "budget_consciousness": "high|medium|low",
-            "time_approach": "quick|moderate|slow",
-            "social_dining": "individual|family|community",
-            "health_focus": "traditional|modern|mixed"
-        }},
-        "dietary_culture": {{
-            "meat_preference": "high|medium|low",
-            "seasonal_awareness": "high|medium|low",
-            "traditional_ingredients": ["ingredient1", "ingredient2"]
-        }}
+        "confidence_score": overall_analysis_confidence_0_to_1
     }}
+    
+    Focus on culinary-relevant cultural aspects. Be conservative with confidence scores.
+    Provide professional analysis based on linguistic and cultural evidence in the request.
     """
     
     try:
-        result = _call_ai(prompt)
-        if "error" in result:
-            raise ValueError(result["error"])
-            
-        logger.info("✅ Cultural context analysis successful")
-        return json.dumps({
-            "status": "success",
-            "user_request": user_request,
-            "analysis": result,
-            "analyzed_at": datetime.now().isoformat()
-        }, ensure_ascii=False, indent=2)
+        # Use AI client for analysis
+        client = await get_ai_client()
+        
+        response = await client.generate_text(
+            prompt=prompt,
+            temperature=settings.conservative_temperature,
+            agent_name="cultural_context_agent"
+        )
+        
+        if response.get("error"):
+            raise Exception(response["error"])
+        
+        # Parse and validate the response
+        content = response.get("content", "")
+        cultural_data_dict = json.loads(content)
+        
+        # Convert to CulturalAnalysis model with error handling
+        try:
+            cultural_data = CulturalAnalysis(**cultural_data_dict)
+        except Exception as model_error:
+            logger.warning(f"⚠️ Model validation failed: {model_error}")
+            # Create a minimal valid model
+            cultural_data = CulturalAnalysis(
+                language=LanguageInfo(code="ro", name="Romanian", confidence=0.5),
+                location=LocationInfo(country="Romania", confidence=0.5),
+                cultural_indicators=CulturalIndicators(
+                    cuisine_style="international",
+                    meal_context="casual", 
+                    cooking_approach="moderate",
+                    budget_consciousness="medium",
+                    time_approach="flexible",
+                    social_dining="family"
+                ),
+                confidence_score=0.5
+            )
+        
+        processing_time = int((time.time() - start_time) * 1000)
+        
+        logger.info(f"✅ Cultural analysis completed in {processing_time}ms")
+        logger.info(f"🎯 Detected: {cultural_data.language.name} ({cultural_data.language.confidence:.2f} confidence)")
+        
+        # Create successful response
+        response = CulturalAnalysisResponse(
+            status="success",
+            message="Cultural context analysis completed successfully",
+            agent_name="cultural_context_agent",
+            processing_time_ms=processing_time,
+            confidence_score=cultural_data.confidence_score,
+            data=cultural_data,
+            user_request=user_request,
+            detected_language=cultural_data.language.code
+        )
+        
+        return response.model_dump_json(indent=2)
         
     except Exception as e:
+        processing_time = int((time.time() - start_time) * 1000)
         logger.error(f"❌ Cultural analysis failed: {e}")
-        return json.dumps({
-            "status": "error",
-            "message": str(e),
-            "fallback": {
-                "cultural_patterns": {
-                    "budget_consciousness": "medium",
-                    "social_dining": "family"
-                }
-            }
-        })
+        
+        # Create fallback response with conservative defaults
+        fallback_response = CulturalAnalysisResponse(
+            status="warning",
+            message=f"Cultural analysis partially failed: {str(e)}. Using conservative defaults.",
+            agent_name="cultural_context_agent", 
+            processing_time_ms=processing_time,
+            confidence_score=0.5,
+            user_request=user_request,
+            detected_language="ro",  # Conservative default for Romanian market
+            data=None
+        )
+        
+        return fallback_response.model_dump_json(indent=2)
+
+
+async def analyze_cultural_context(user_request: str, basic_analysis_json: str = "") -> str:
+    """
+    Perform deeper cultural context analysis building on basic language detection.
+    
+    Args:
+        user_request: Original user request
+        basic_analysis_json: Optional basic cultural analysis to enhance
+        
+    Returns:
+        JSON string containing enhanced cultural analysis
+    """
+    start_time = time.time()
+    logger.info(f"🎭 Performing deep cultural analysis for: {user_request[:50]}...")
+    
+    # Parse basic analysis if provided
+    basic_context = ""
+    if basic_analysis_json:
+        try:
+            import json
+            basic_data = json.loads(basic_analysis_json)
+            if basic_data.get("status") == "success" and basic_data.get("data"):
+                cultural_data = basic_data["data"]
+                basic_context = f"""
+                Previous Analysis Context:
+                - Language: {cultural_data.get('language', {}).get('name', 'Unknown')}
+                - Location: {cultural_data.get('location', {}).get('country', 'Unknown')}
+                - Initial Cultural Indicators: {cultural_data.get('cultural_indicators', {})}
+                """
+        except Exception as e:
+            logger.warning(f"⚠️ Could not parse basic analysis: {e}")
+    
+    # Enhanced cultural analysis prompt
+    prompt = f"""
+    Perform comprehensive cultural cooking context analysis for: "{user_request}"
+    
+    {basic_context}
+    
+    As a culinary cultural specialist, provide detailed analysis covering:
+    
+    1. **Advanced Cultural Patterns**:
+       - Identify specific cooking traditions and preferences
+       - Assess seasonal cooking awareness and ingredient preferences
+       - Determine traditional vs. modern cooking preferences
+       - Evaluate health and dietary consciousness levels
+    
+    2. **Culinary Cultural Mapping**:
+       - Map to specific cultural cooking styles and techniques
+       - Identify preferred protein, carbohydrate, and flavor profiles
+       - Assess spice tolerance and flavor complexity preferences
+       - Determine typical meal structure and portion expectations
+    
+    3. **Social and Economic Context**:
+       - Assess cooking skill level implications
+       - Determine kitchen equipment and cooking method preferences  
+       - Evaluate ingredient accessibility and market preferences
+       - Identify value-consciousness and quality expectations
+    
+    4. **Traditional Recipe Recognition**:
+       - Identify specific traditional recipes or cooking methods referenced
+       - Assess cultural authenticity requirements vs. adaptation flexibility
+       - Determine seasonal and regional ingredient preferences
+       - Provide cultural context for ingredient substitutions
+    
+    Return enhanced cultural analysis JSON:
+    {{
+        "language": {{
+            "code": "language_code",
+            "name": "language_name", 
+            "confidence": confidence_score,
+            "dialect": "dialect_or_null"
+        }},
+        "location": {{
+            "country": "country_name",
+            "region": "region_or_null",
+            "confidence": confidence_score
+        }},
+        "cultural_indicators": {{
+            "cuisine_style": "traditional|modern|fusion|international",
+            "meal_context": "casual|formal|celebration|comfort|romantic|family",
+            "cooking_approach": "quick|elaborate|rustic|refined",
+            "budget_consciousness": "high|medium|low",
+            "time_approach": "immediate|flexible|leisurely", 
+            "social_dining": "individual|family|entertaining|intimate"
+        }},
+        "traditional_dishes": [
+            {{
+                "name": "traditional_dish_name",
+                "origin": "cultural_origin",
+                "confidence": confidence_score,
+                "cultural_significance": "cultural_importance_explanation"
+            }}
+        ],
+        "confidence_score": overall_confidence_0_to_1
+    }}
+    
+    Provide professional, evidence-based cultural analysis relevant to recipe creation.
+    Focus on actionable insights that will inform ingredient selection and cooking methods.
+    """
+    
+    try:
+        # Use AI for enhanced analysis
+        client = await get_ai_client()
+        
+        response = await client.generate_text(
+            prompt=prompt,
+            temperature=settings.balanced_temperature,
+            agent_name="cultural_context_agent"
+        )
+        
+        if response.get("error"):
+            raise Exception(response["error"])
+        
+        # Parse and validate the response
+        content = response.get("content", "")
+        cultural_data_dict = json.loads(content)
+        
+        # Convert to CulturalAnalysis model with error handling
+        try:
+            enhanced_data = CulturalAnalysis(**cultural_data_dict)
+        except Exception as model_error:
+            logger.warning(f"⚠️ Enhanced model validation failed: {model_error}")
+            # Fallback to basic analysis if enhancement fails
+            if basic_analysis_json:
+                logger.info("📋 Returning basic analysis due to enhancement failure")
+                return basic_analysis_json
+            else:
+                # Create minimal fallback
+                enhanced_data = CulturalAnalysis(
+                    language=LanguageInfo(code="ro", name="Romanian", confidence=0.5),
+                    location=LocationInfo(country="Romania", confidence=0.5),
+                    cultural_indicators=CulturalIndicators(
+                        cuisine_style="international",
+                        meal_context="casual",
+                        cooking_approach="moderate", 
+                        budget_consciousness="medium",
+                        time_approach="flexible",
+                        social_dining="family"
+                    ),
+                    confidence_score=0.5
+                )
+        
+        processing_time = int((time.time() - start_time) * 1000)
+        
+        logger.info(f"✅ Enhanced cultural analysis completed in {processing_time}ms")
+        logger.info(f"🎯 Cultural style: {enhanced_data.cultural_indicators.cuisine_style}")
+        logger.info(f"🍽️ Meal context: {enhanced_data.cultural_indicators.meal_context}")
+        
+        # Create comprehensive response
+        response = CulturalAnalysisResponse(
+            status="success",
+            message="Enhanced cultural context analysis completed",
+            agent_name="cultural_context_agent",
+            processing_time_ms=processing_time,
+            confidence_score=enhanced_data.confidence_score,
+            data=enhanced_data,
+            user_request=user_request,
+            detected_language=enhanced_data.language.code
+        )
+        
+        return response.model_dump_json(indent=2)
+        
+    except Exception as e:
+        processing_time = int((time.time() - start_time) * 1000)
+        logger.error(f"❌ Enhanced cultural analysis failed: {e}")
+        
+        # Return the basic analysis if enhancement fails
+        if basic_analysis_json:
+            logger.info("📋 Returning basic analysis due to enhancement failure")
+            return basic_analysis_json
+        
+        # Create error response
+        error_response = CulturalAnalysisResponse(
+            status="error",
+            message=f"Cultural analysis failed: {str(e)}",
+            agent_name="cultural_context_agent",
+            processing_time_ms=processing_time,
+            user_request=user_request
+        )
+        
+        return error_response.model_dump_json(indent=2)

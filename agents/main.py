@@ -1,4 +1,6 @@
-# main.py - Cloud Run Optimized
+# agents/main.py
+# Cloud Run Optimized - BringoChef AI FastAPI Server using Google ADK
+
 import os
 import sys
 import uvicorn
