@@ -7,7 +7,8 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-
+from google import genai
+from google.genai import types
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
 logger = logging.getLogger("product_search_tools")
@@ -108,8 +109,7 @@ def setup_gemini_client(credentials: Optional[Dict[str, Any]] = None):
         genai.Client or None: Initialized client or None if failed
     """
     try:
-        from google import genai
-        from google.genai import types
+    
         
         # Get credentials if not provided
         if credentials is None:
