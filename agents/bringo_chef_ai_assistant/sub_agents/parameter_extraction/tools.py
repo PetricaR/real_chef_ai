@@ -33,7 +33,7 @@ async def extract_cooking_parameters(user_request: str) -> str:
         return create_error_response(
             agent_name="parameter_extraction_agent",
             error_message="User request is too short for parameter extraction"
-        ).json(ensure_ascii=False)
+        ).model_dump_json()
     
     # Professional AI prompt for parameter extraction
     prompt = f"""
@@ -173,7 +173,7 @@ async def extract_cooking_parameters(user_request: str) -> str:
             parameters_found=parameters_found
         )
         
-        return response.json(ensure_ascii=False, indent=2)
+        return response.model_dump_json(indent=2)
         
     except Exception as e:
         processing_time = int((time.time() - start_time) * 1000)
@@ -191,7 +191,7 @@ async def extract_cooking_parameters(user_request: str) -> str:
             data=None
         )
         
-        return fallback_response.json(ensure_ascii=False, indent=2)
+        return fallback_response.model_dump_json(indent=2)
 
 
 async def extract_parameters_with_culture(user_request: str, cultural_context_json: str = "") -> str:
@@ -364,7 +364,7 @@ async def extract_parameters_with_culture(user_request: str, cultural_context_js
             parameters_found=parameters_found
         )
         
-        return response.json(ensure_ascii=False, indent=2)
+        return response.model_dump_json(indent=2)
         
     except Exception as e:
         processing_time = int((time.time() - start_time) * 1000)

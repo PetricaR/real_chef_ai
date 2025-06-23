@@ -15,7 +15,7 @@ class BringoChefSettings:
     """
     
     # AI Model Configuration
-    text_model: str = "gemini-2.5-flash"
+    text_model: str = "gemini-2.0-flash"
     image_model: str = "imagen-3.0-generate-002"
     
     # Google Cloud Configuration  

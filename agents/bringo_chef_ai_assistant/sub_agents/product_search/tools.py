@@ -272,7 +272,7 @@ async def search_products_for_ingredients(ingredient_validation_json: str) -> st
             total_products_found=0
         )
         
-        return error_response.json(ensure_ascii=False, indent=2)
+        return error_response.model_dump_json(indent=2)
 
 
 async def optimize_product_selection(search_results_json: str, budget_ron: float = 100.0) -> str:
