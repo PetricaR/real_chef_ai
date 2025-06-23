@@ -1,725 +1,389 @@
-# agents/bringo_chef_ai_assistant/sub_agents/product_search/tools.py
-# Professional async product search tools for Bringo.ro with AI-driven search optimization
-# Concurrent product search with intelligent Romanian term generation and fallback strategies
+# agents/bringo_chef_ai_assistant/sub_agents/parameter_extraction/tools.py
+# Parameter extraction tools with async AI integration and intelligent inference
+# Professional parameter analysis without hardcoded assumptions
 
 import asyncio
-import aiohttp
 import logging
 import time
 import json
-import re
-from typing import List, Dict, Any, Optional
-from urllib.parse import urljoin, quote
-from bs4 import BeautifulSoup
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from ....shared.client import get_ai_client
-from ....shared.models import ProductInfo, ProductSearchResult, ProductSearchResponse
-from ....shared.responses import create_success_response, create_error_response
-from ....shared.config import settings
+from ...shared.client import get_ai_client
+from ...shared.models import CookingParameters, ParameterExtractionResponse, BudgetInfo, ServingInfo, TimeInfo, DietaryInfo
+from ...shared.responses import create_success_response, create_error_response
+from ...shared.config import settings
 
-logger = logging.getLogger("product_search_tools")
+logger = logging.getLogger("parameter_tools")
 
 
-class BringoSearchClient:
+async def extract_cooking_parameters(user_request: str) -> str:
     """
-    Professional async client for Bringo.ro product searches with intelligent optimization
-    """
-    
-    def __init__(self):
-        self.base_url = settings.bringo_base_url
-        self.store = settings.bringo_store
-        self.session: Optional[aiohttp.ClientSession] = None
-        self.rate_limiter = asyncio.Semaphore(settings.max_concurrent_requests)
-    
-    async def __aenter__(self):
-        connector = aiohttp.TCPConnector(limit=settings.max_concurrent_requests)
-        timeout = aiohttp.ClientTimeout(total=settings.request_timeout)
-        
-        self.session = aiohttp.ClientSession(
-            headers=settings.request_headers,
-            connector=connector,
-            timeout=timeout
-        )
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
-    
-    async def search_product(self, search_term: str, max_results: int = None) -> List[ProductInfo]:
-        """
-        Search for products on Bringo.ro with professional error handling
-        
-        Args:
-            search_term: Romanian search term
-            max_results: Maximum products to return
-            
-        Returns:
-            List of ProductInfo objects
-        """
-        if not self.session:
-            raise RuntimeError("Session not initialized - use async context manager")
-        
-        max_results = max_results or settings.max_products_per_search
-        
-        async with self.rate_limiter:
-            try:
-                search_url = f"{self.base_url}/ro/search/{self.store}"
-                params = {'criteria[search][value]': search_term}
-                
-                logger.info(f"🔍 Searching Bringo.ro for: '{search_term}'")
-                
-                async with self.session.get(search_url, params=params) as response:
-                    if response.status != 200:
-                        logger.warning(f"⚠️ Search failed with status {response.status} for '{search_term}'")
-                        return []
-                    
-                    html_content = await response.text()
-                    products = await self._parse_products(html_content, search_term, max_results)
-                    
-                    logger.info(f"✅ Found {len(products)} products for '{search_term}'")
-                    return products
-                    
-            except asyncio.TimeoutError:
-                logger.error(f"❌ Search timeout for '{search_term}'")
-                return []
-            except Exception as e:
-                logger.error(f"❌ Search error for '{search_term}': {e}")
-                return []
-    
-    async def _parse_products(self, html: str, search_term: str, max_results: int) -> List[ProductInfo]:
-        """Parse Bringo product results from HTML"""
-        try:
-            soup = BeautifulSoup(html, 'html.parser')
-            products = []
-            product_elements = soup.select('div.box-product')[:max_results]
-            
-            for elem in product_elements:
-                try:
-                    product = await self._extract_product_info(elem, search_term)
-                    if product and product.price > 0:
-                        products.append(product)
-                except Exception as e:
-                    logger.debug(f"Could not parse product element: {e}")
-                    continue
-            
-            # Sort by relevance and price
-            products.sort(key=lambda p: (-p.relevance_score, p.price))
-            return products
-            
-        except Exception as e:
-            logger.error(f"❌ HTML parsing failed for '{search_term}': {e}")
-            return []
-    
-    async def _extract_product_info(self, elem, search_term: str) -> Optional[ProductInfo]:
-        """Extract product information from HTML element"""
-        try:
-            # Extract product name and URL
-            name_link = elem.select_one('a.bringo-product-name')
-            if not name_link or not name_link.get_text(strip=True):
-                return None
-            
-            name = name_link.get_text(strip=True)
-            url = urljoin(self.base_url, name_link['href'])
-            
-            # Extract price
-            price_elem = elem.select_one('div.bringo-product-price')
-            if not price_elem:
-                return None
-            
-            price_text = price_elem.get_text(strip=True)
-            price_match = re.search(r'(\d+[,.]\d+)', price_text.replace(' ', ''))
-            
-            if not price_match:
-                return None
-            
-            price = float(price_match.group(1).replace(',', '.'))
-            
-            # Check availability
-            available = 'out-of-stock' not in str(elem).lower()
-            
-            # Calculate relevance score
-            relevance_score = self._calculate_relevance(name, search_term)
-            
-            # Extract package size if available
-            package_size = self._extract_package_size(name)
-            
-            return ProductInfo(
-                name=name,
-                price=price,
-                url=url,
-                available=available,
-                relevance_score=relevance_score,
-                package_size=package_size
-            )
-            
-        except Exception as e:
-            logger.debug(f"Product extraction failed: {e}")
-            return None
-    
-    def _calculate_relevance(self, product_name: str, search_term: str) -> float:
-        """Calculate relevance score between product and search term"""
-        product_lower = product_name.lower()
-        search_lower = search_term.lower()
-        
-        # Exact match gets highest score
-        if search_lower in product_lower:
-            return 1.0
-        
-        # Word overlap scoring
-        search_words = set(search_lower.split())
-        product_words = set(product_lower.split())
-        common_words = search_words.intersection(product_words)
-        
-        if not search_words:
-            return 0.0
-        
-        base_score = len(common_words) / len(search_words)
-        
-        # Bonus for product name starting with search term
-        if product_lower.startswith(search_lower):
-            base_score += 0.2
-        
-        return min(1.0, base_score)
-    
-    def _extract_package_size(self, product_name: str) -> Optional[str]:
-        """Extract package size information from product name"""
-        size_patterns = [
-            r'(\d+(?:[,.]\d+)?\s*(?:kg|g|l|ml|buc|bucăți))',
-            r'(\d+\s*x\s*\d+(?:[,.]\d+)?\s*(?:g|ml))'
-        ]
-        
-        for pattern in size_patterns:
-            match = re.search(pattern, product_name, re.IGNORECASE)
-            if match:
-                return match.group(1)
-        
-        return None
-
-
-async def search_products_for_ingredients(ingredient_validation_json: str) -> str:
-    """
-    Search for products for all validated ingredients using concurrent processing.
+    Extract cooking parameters from user request using intelligent AI analysis.
     
     Args:
-        ingredient_validation_json: JSON string containing ingredient validation results
+        user_request: User's culinary request
         
     Returns:
-        JSON string containing comprehensive product search results
+        JSON string containing parameter extraction response
     """
     start_time = time.time()
-    logger.info("🛒 Starting comprehensive product search for all ingredients...")
+    logger.info(f"📊 Extracting cooking parameters from: {user_request[:50]}...")
+    
+    if not user_request or len(user_request.strip()) < 2:
+        return create_error_response(
+            agent_name="parameter_extraction_agent",
+            error_message="User request is too short for parameter extraction"
+        ).json(ensure_ascii=False)
+    
+    # Professional AI prompt for parameter extraction
+    prompt = f"""
+    Extract comprehensive cooking parameters from this culinary request: "{user_request}"
+    
+    As a professional cooking parameter analyst, perform systematic extraction covering:
+    
+    1. **Budget Analysis**:
+       - Identify explicit budget mentions (amounts in RON, lei, etc.)
+       - Assess implicit budget consciousness from language and context
+       - Consider cuisine type and meal complexity for budget estimation
+       - Assign confidence based on evidence strength
+    
+    2. **Serving Size Detection**:
+       - Extract explicit serving counts ("for 2 people", "family of 4")
+       - Infer from social context (romantic = 2, family = 4-6, party = 8+)
+       - Consider meal type and occasion for serving expectations
+       - Provide reasoning for inferred serving sizes
+    
+    3. **Time Constraint Assessment**:
+       - Identify explicit time mentions ("30 minutes", "quick dinner")
+       - Assess urgency from context ("tonight", "weekend project")
+       - Consider cooking complexity and skill level implications
+       - Classify as immediate/flexible/leisurely based on cues
+    
+    4. **Meal Classification**:
+       - Determine meal type (breakfast, lunch, dinner, snack)
+       - Identify occasion (everyday, special, celebration, comfort, romantic)
+       - Assess formality level and social context
+       - Consider cultural meal patterns and expectations
+    
+    5. **Dietary Requirements**:
+       - Extract explicit restrictions (vegetarian, gluten-free, etc.)
+       - Identify health preferences (healthy, low-carb, etc.)
+       - Recognize cultural dietary patterns
+       - Assess confidence based on clarity of dietary cues
+    
+    6. **Complexity and Skill Assessment**:
+       - Infer preferred difficulty level from language and context
+       - Consider time constraints and cooking confidence cues
+       - Assess kitchen equipment and skill level implications
+       - Determine cooking approach preferences
+    
+    Return precise JSON analysis with Romanian market context:
+    {{
+        "budget": {{
+            "amount_ron": estimated_budget_in_romanian_lei,
+            "confidence": "high|medium|low",
+            "explicit": true_if_explicitly_mentioned_false_if_inferred
+        }},
+        "servings": {{
+            "count": estimated_serving_count,
+            "confidence": "high|medium|low",
+            "explicit": true_if_explicitly_mentioned
+        }},
+        "time": {{
+            "minutes": estimated_cooking_time_minutes,
+            "urgency": "immediate|flexible|leisurely",
+            "confidence": "high|medium|low"
+        }},
+        "meal_type": "breakfast|lunch|dinner|snack",
+        "meal_occasion": "everyday|special|celebration|comfort|romantic",
+        "dietary": {{
+            "restrictions": ["explicit_dietary_restrictions"],
+            "preferences": ["health_and_diet_preferences"],
+            "confidence": "high|medium|low"
+        }},
+        "difficulty_preference": "easy|medium|advanced|any",
+        "cuisine_type": "specific_cuisine_if_mentioned_or_null"
+    }}
+    
+    Use Romanian market context for budget estimates (typical food costs, purchasing power).
+    Provide conservative estimates when information is ambiguous.
+    Base all inferences on evidence from the request text.
+    """
     
     try:
-        # Parse ingredient validation data
-        validation_data = json.loads(ingredient_validation_json)
-        
-        if validation_data.get("status") not in ["success", "warning"]:
-            raise Exception("Invalid ingredient validation data")
-        
-        # Extract ingredients from validation results
-        ingredients_to_search = await _extract_search_ingredients(validation_data)
-        
-        if not ingredients_to_search:
-            raise Exception("No valid ingredients found for product search")
-        
-        logger.info(f"🔍 Searching for {len(ingredients_to_search)} ingredients")
-        
-        # Execute concurrent product searches
-        search_results = await _execute_concurrent_searches(ingredients_to_search)
-        
-        # Analyze and optimize results
-        analysis = await _analyze_search_results(search_results, validation_data)
-        
-        processing_time = int((time.time() - start_time) * 1000)
-        
-        logger.info(f"✅ Product search completed in {processing_time}ms")
-        logger.info(f"📊 Found products for {analysis['successful_searches']}/{len(ingredients_to_search)} ingredients")
-        logger.info(f"💰 Total estimated cost: {analysis['total_estimated_cost_ron']} RON")
-        
-        # Create successful response
-        response = ProductSearchResponse(
-            status="success",
-            message=f"Found products for {analysis['successful_searches']} ingredients",
-            agent_name="product_search_agent",
-            processing_time_ms=processing_time,
-            confidence_score=analysis['success_rate'],
-            data=search_results,
-            total_searches=len(ingredients_to_search),
-            successful_searches=analysis['successful_searches'],
-            total_products_found=analysis['total_products_found']
-        )
-        
-        # Add analysis data
-        response_dict = response.dict()
-        response_dict["shopping_analysis"] = analysis
-        
-        return json.dumps(response_dict, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        processing_time = int((time.time() - start_time) * 1000)
-        logger.error(f"❌ Product search failed: {e}")
-        
-        error_response = ProductSearchResponse(
-            status="error",
-            message=f"Product search failed: {str(e)}",
-            agent_name="product_search_agent",
-            processing_time_ms=processing_time,
-            total_searches=0,
-            successful_searches=0,
-            total_products_found=0
-        )
-        
-        return error_response.json(ensure_ascii=False, indent=2)
-
-
-async def optimize_product_selection(search_results_json: str, budget_ron: float = 100.0) -> str:
-    """
-    Optimize product selection for best value within budget constraints.
-    
-    Args:
-        search_results_json: Product search results
-        budget_ron: Budget constraint in Romanian Lei
-        
-    Returns:
-        JSON string containing optimized product recommendations
-    """
-    start_time = time.time()
-    logger.info(f"💡 Optimizing product selection for {budget_ron} RON budget...")
-    
-    try:
-        search_data = json.loads(search_results_json)
-        
-        if search_data.get("status") != "success":
-            raise Exception("Invalid search results for optimization")
-        
-        search_results = search_data.get("data", [])
-        
-        # Generate optimization prompt for AI
-        optimization_prompt = f"""
-        Optimize product selection for best value within {budget_ron} RON budget:
-        
-        Search Results: {json.dumps(search_results[:10], indent=2)}  # Truncate for prompt size
-        
-        As a shopping optimization specialist, provide recommendations for:
-        
-        1. **Budget Optimization**:
-           - Select best value products within budget
-           - Identify cost-saving opportunities
-           - Suggest quantity adjustments if needed
-           - Prioritize essential vs. optional ingredients
-        
-        2. **Quality Assessment**:
-           - Evaluate price-to-quality ratio for each product
-           - Identify premium vs. budget options
-           - Recommend brand preferences for Romanian market
-           - Assess packaging efficiency
-        
-        3. **Shopping Strategy**:
-           - Suggest optimal shopping sequence
-           - Identify bulk buying opportunities
-           - Recommend seasonal timing for purchases
-           - Provide Romanian market shopping tips
-        
-        Return optimization recommendations:
-        {{
-            "optimized_selections": [
-                {{
-                    "ingredient": "ingredient_name",
-                    "recommended_product": "best_value_product",
-                    "reasoning": "why_this_product_chosen",
-                    "cost_savings": "potential_savings_vs_alternatives",
-                    "quality_assessment": "quality_rating_explanation"
-                }}
-            ],
-            "budget_analysis": {{
-                "optimized_total_cost_ron": optimized_total,
-                "savings_achieved_ron": amount_saved,
-                "budget_utilization_percentage": percentage_used,
-                "remaining_budget_ron": remaining_amount
-            }},
-            "shopping_strategy": {{
-                "recommended_shopping_order": ["ingredient_purchase_sequence"],
-                "bulk_buying_opportunities": ["bulk_purchase_recommendations"],
-                "timing_recommendations": "best_time_to_shop",
-                "store_recommendations": "best_romanian_stores_or_sections"
-            }}
-        }}
-        """
-        
-        # Use AI for optimization analysis
+        # Use AI client for parameter extraction
         client = await get_ai_client()
-        
-        response = await client.generate_text(
-            prompt=optimization_prompt,
-            temperature=settings.conservative_temperature,
-            agent_name="product_search_agent"
-        )
-        
-        if response.get("error"):
-            raise Exception(response["error"])
-        
-        optimization_data = json.loads(response.get("content", "{}"))
-        processing_time = int((time.time() - start_time) * 1000)
-        
-        logger.info(f"✅ Product optimization completed in {processing_time}ms")
-        
-        # Create optimization response
-        response_obj = {
-            "status": "success",
-            "message": "Product selection optimized successfully",
-            "agent_name": "product_search_agent",
-            "processing_time_ms": processing_time,
-            "optimization_data": optimization_data,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        return json.dumps(response_obj, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        processing_time = int((time.time() - start_time) * 1000)
-        logger.error(f"❌ Product optimization failed: {e}")
-        
-        error_response = {
-            "status": "error",
-            "message": f"Product optimization failed: {str(e)}",
-            "agent_name": "product_search_agent",
-            "processing_time_ms": processing_time
-        }
-        
-        return json.dumps(error_response, ensure_ascii=False, indent=2)
-
-
-async def generate_shopping_strategy(optimized_products_json: str) -> str:
-    """
-    Generate comprehensive shopping strategy for Romanian market.
-    
-    Args:
-        optimized_products_json: Optimized product selection results
-        
-    Returns:
-        JSON string containing shopping strategy recommendations
-    """
-    start_time = time.time()
-    logger.info("📋 Generating comprehensive shopping strategy...")
-    
-    try:
-        products_data = json.loads(optimized_products_json)
-        
-        if products_data.get("status") != "success":
-            raise Exception("Invalid optimized products data")
-        
-        # Generate shopping strategy using AI
-        strategy_prompt = f"""
-        Generate comprehensive shopping strategy for Romanian consumers:
-        
-        Optimized Products: {json.dumps(products_data.get('optimization_data', {}), indent=2)}
-        
-        As a Romanian market shopping specialist, provide detailed guidance covering:
-        
-        1. **Shopping Route Optimization**:
-           - Optimal shopping sequence within Romanian supermarkets
-           - Best sections/aisles to visit for efficiency
-           - Peak vs. off-peak shopping timing recommendations
-           - Multi-store shopping strategy if beneficial
-        
-        2. **Romanian Market Intelligence**:
-           - Best Romanian supermarket chains for these ingredients
-           - Local brand recommendations vs. international brands
-           - Seasonal pricing patterns and optimal purchase timing
-           - Regional availability considerations
-        
-        3. **Cost-Saving Strategies**:
-           - Discount and promotion timing for common ingredients
-           - Bulk buying recommendations with storage considerations
-           - Generic vs. brand name value assessments
-           - Membership and loyalty program benefits
-        
-        4. **Practical Shopping Tips**:
-           - Ingredient freshness indicators and selection tips
-           - Storage and preservation recommendations
-           - Substitution strategies for unavailable items
-           - Quantity adjustment guidelines for different serving sizes
-        
-        Return comprehensive shopping strategy:
-        {{
-            "shopping_route": {{
-                "recommended_stores": ["best_romanian_supermarket_chains"],
-                "shopping_sequence": ["optimal_ingredient_collection_order"],
-                "timing_recommendations": "best_days_and_times_to_shop",
-                "estimated_shopping_time": "total_time_needed"
-            }},
-            "romanian_market_tips": {{
-                "local_brand_preferences": ["recommended_romanian_brands"],
-                "seasonal_considerations": "seasonal_pricing_and_availability",
-                "regional_variations": "geographic_availability_differences",
-                "cultural_shopping_patterns": "romanian_consumer_preferences"
-            }},
-            "cost_optimization": {{
-                "discount_strategies": ["how_to_find_best_deals"],
-                "bulk_buying_guide": ["what_to_buy_in_bulk_and_storage"],
-                "price_comparison_tips": ["how_to_compare_prices_effectively"],
-                "loyalty_program_benefits": ["best_programs_for_food_shopping"]
-            }},
-            "practical_guidance": {{
-                "freshness_selection": ["how_to_choose_quality_ingredients"],
-                "storage_recommendations": ["proper_storage_for_each_ingredient"],
-                "substitution_strategies": ["alternatives_if_items_unavailable"],
-                "quantity_scaling": ["how_to_adjust_for_different_serving_sizes"]
-            }}
-        }}
-        """
-        
-        client = await get_ai_client()
-        
-        response = await client.generate_text(
-            prompt=strategy_prompt,
-            temperature=settings.balanced_temperature,
-            agent_name="product_search_agent"
-        )
-        
-        if response.get("error"):
-            raise Exception(response["error"])
-        
-        strategy_data = json.loads(response.get("content", "{}"))
-        processing_time = int((time.time() - start_time) * 1000)
-        
-        logger.info(f"✅ Shopping strategy generated in {processing_time}ms")
-        
-        # Create strategy response
-        response_obj = {
-            "status": "success",
-            "message": "Shopping strategy generated successfully",
-            "agent_name": "product_search_agent",
-            "processing_time_ms": processing_time,
-            "shopping_strategy": strategy_data,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        return json.dumps(response_obj, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        processing_time = int((time.time() - start_time) * 1000)
-        logger.error(f"❌ Shopping strategy generation failed: {e}")
-        
-        error_response = {
-            "status": "error",
-            "message": f"Shopping strategy generation failed: {str(e)}",
-            "agent_name": "product_search_agent",
-            "processing_time_ms": processing_time
-        }
-        
-        return json.dumps(error_response, ensure_ascii=False, indent=2)
-
-
-async def _extract_search_ingredients(validation_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract ingredients for search from validation data"""
-    ingredients = []
-    
-    # Check for automatic selection data
-    if "automatic_selection_data" in validation_data:
-        selection_data = validation_data["automatic_selection_data"]
-        auto_ingredients = selection_data.get("automatic_ingredient_selection", {}).get("selected_ingredients", [])
-        
-        for ingredient in auto_ingredients:
-            ingredients.append({
-                "name": ingredient.get("name", ""),
-                "romanian_name": ingredient.get("romanian_name", ""),
-                "importance": ingredient.get("importance", "important"),
-                "estimated_cost": ingredient.get("estimated_cost_ron", 0)
-            })
-    
-    # Also check for validation data
-    if "data" in validation_data:
-        validation_list = validation_data["data"]
-        if isinstance(validation_list, list):
-            for validation in validation_list:
-                ingredients.append({
-                    "name": validation.get("ingredient", ""),
-                    "romanian_name": validation.get("romanian_name", ""),
-                    "importance": "important",
-                    "estimated_cost": validation.get("estimated_cost_ron", 0)
-                })
-    
-    return ingredients
-
-
-async def _execute_concurrent_searches(ingredients: List[Dict[str, Any]]) -> List[ProductSearchResult]:
-    """Execute concurrent product searches for all ingredients"""
-    search_results = []
-    
-    async with BringoSearchClient() as client:
-        # Create search tasks
-        search_tasks = []
-        for ingredient in ingredients:
-            task = _search_single_ingredient(client, ingredient)
-            search_tasks.append(task)
-        
-        # Execute searches concurrently
-        results = await asyncio.gather(*search_tasks, return_exceptions=True)
-        
-        # Process results
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"❌ Search failed for {ingredients[i]['name']}: {result}")
-                # Create empty result for failed search
-                search_results.append(ProductSearchResult(
-                    ingredient=ingredients[i]['name'],
-                    search_terms_used=[ingredients[i]['romanian_name']],
-                    products_found=[],
-                    best_recommendation=None,
-                    total_found=0,
-                    search_success=False
-                ))
-            else:
-                search_results.append(result)
-    
-    return search_results
-
-
-async def _search_single_ingredient(client: BringoSearchClient, ingredient: Dict[str, Any]) -> ProductSearchResult:
-    """Search for a single ingredient with fallback strategies"""
-    ingredient_name = ingredient["name"]
-    romanian_name = ingredient["romanian_name"]
-    
-    # Generate search terms with AI assistance
-    search_terms = await _generate_search_terms(ingredient_name, romanian_name)
-    
-    all_products = []
-    successful_terms = []
-    
-    # Try each search term until we find products
-    for term in search_terms:
-        try:
-            products = await client.search_product(term)
-            if products:
-                all_products.extend(products)
-                successful_terms.append(term)
-                
-                # If we found enough products, break
-                if len(all_products) >= settings.max_products_per_search:
-                    break
-                    
-        except Exception as e:
-            logger.warning(f"⚠️ Search term '{term}' failed for {ingredient_name}: {e}")
-            continue
-    
-    # Remove duplicates and sort by relevance
-    unique_products = _deduplicate_products(all_products)
-    unique_products.sort(key=lambda p: (-p.relevance_score, p.price))
-    
-    # Select best recommendation
-    best_product = unique_products[0] if unique_products else None
-    
-    return ProductSearchResult(
-        ingredient=ingredient_name,
-        search_terms_used=successful_terms,
-        products_found=unique_products[:settings.max_products_per_search],
-        best_recommendation=best_product,
-        total_found=len(unique_products),
-        search_success=len(unique_products) > 0
-    )
-
-
-async def _generate_search_terms(english_name: str, romanian_name: str) -> List[str]:
-    """Generate optimized Romanian search terms using AI"""
-    search_terms = [romanian_name] if romanian_name else []
-    
-    # Add the English name as fallback
-    if english_name and english_name.lower() != romanian_name.lower():
-        search_terms.append(english_name)
-    
-    # Generate additional terms using AI
-    try:
-        client = await get_ai_client()
-        
-        prompt = f"""
-        Generate optimized Romanian search terms for finding "{english_name}" (Romanian: "{romanian_name}") on Romanian e-commerce sites.
-        
-        Return 3-5 alternative Romanian search terms that would help find this ingredient:
-        {{
-            "additional_terms": ["term1", "term2", "term3"]
-        }}
-        
-        Consider:
-        - Regional Romanian variations
-        - Common misspellings or alternate spellings
-        - Category terms (e.g., "condimente" for spices)
-        - Brand names if relevant
-        """
         
         response = await client.generate_text(
             prompt=prompt,
             temperature=settings.conservative_temperature,
-            agent_name="product_search_agent"
+            agent_name="parameter_extraction_agent"
         )
         
-        if not response.get("error"):
-            ai_terms = json.loads(response.get("content", "{}"))
-            additional_terms = ai_terms.get("additional_terms", [])
-            search_terms.extend(additional_terms)
-            
-    except Exception as e:
-        logger.warning(f"⚠️ AI search term generation failed: {e}")
-    
-    # Remove duplicates while preserving order
-    unique_terms = []
-    seen = set()
-    for term in search_terms:
-        if term and term.lower() not in seen:
-            unique_terms.append(term)
-            seen.add(term.lower())
-    
-    return unique_terms[:5]  # Limit to 5 terms max
-
-
-def _deduplicate_products(products: List[ProductInfo]) -> List[ProductInfo]:
-    """Remove duplicate products based on name and price"""
-    unique_products = []
-    seen = set()
-    
-    for product in products:
-        # Create a key based on name and price
-        key = (product.name.lower().strip(), round(product.price, 2))
+        if response.get("error"):
+            raise Exception(response["error"])
         
-        if key not in seen:
-            unique_products.append(product)
-            seen.add(key)
-    
-    return unique_products
+        # Parse and validate the response
+        content = response.get("content", "")
+        parameter_data_dict = json.loads(content)
+        
+        # Convert to CookingParameters model with error handling
+        try:
+            parameter_data = CookingParameters(**parameter_data_dict)
+        except Exception as model_error:
+            logger.warning(f"⚠️ Parameter model validation failed: {model_error}")
+            # Create fallback parameters
+            parameter_data = CookingParameters(
+                budget=BudgetInfo(amount_ron=50.0, confidence="low", explicit=False),
+                servings=ServingInfo(count=4, confidence="low", explicit=False),
+                time=TimeInfo(minutes=60, urgency="flexible", confidence="low"),
+                meal_type="lunch",
+                meal_occasion="everyday", 
+                dietary=DietaryInfo(confidence="low"),
+                difficulty_preference="medium"
+            )
+        
+        processing_time = int((time.time() - start_time) * 1000)
+        
+        # Count successfully extracted parameters
+        parameters_found = 0
+        if parameter_data.budget.confidence != "low":
+            parameters_found += 1
+        if parameter_data.servings.confidence != "low":
+            parameters_found += 1
+        if parameter_data.time.confidence != "low":
+            parameters_found += 1
+        if parameter_data.dietary.confidence != "low":
+            parameters_found += 1
+        
+        logger.info(f"✅ Parameter extraction completed in {processing_time}ms")
+        logger.info(f"💰 Budget: {parameter_data.budget.amount_ron} RON ({parameter_data.budget.confidence})")
+        logger.info(f"👥 Servings: {parameter_data.servings.count} ({parameter_data.servings.confidence})")
+        logger.info(f"⏱️ Time: {parameter_data.time.minutes} min ({parameter_data.time.confidence})")
+        
+        # Create successful response
+        response = ParameterExtractionResponse(
+            status="success",
+            message="Cooking parameters extracted successfully",
+            agent_name="parameter_extraction_agent",
+            processing_time_ms=processing_time,
+            confidence_score=_calculate_overall_confidence(parameter_data),
+            data=parameter_data,
+            user_request=user_request,
+            parameters_found=parameters_found
+        )
+        
+        return response.json(ensure_ascii=False, indent=2)
+        
+    except Exception as e:
+        processing_time = int((time.time() - start_time) * 1000)
+        logger.error(f"❌ Parameter extraction failed: {e}")
+        
+        # Create fallback response with conservative defaults
+        fallback_response = ParameterExtractionResponse(
+            status="warning",
+            message=f"Parameter extraction partially failed: {str(e)}. Using conservative defaults.",
+            agent_name="parameter_extraction_agent",
+            processing_time_ms=processing_time,
+            confidence_score=0.3,
+            user_request=user_request,
+            parameters_found=0,
+            data=None
+        )
+        
+        return fallback_response.json(ensure_ascii=False, indent=2)
 
 
-async def _analyze_search_results(search_results: List[ProductSearchResult], validation_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Analyze search results and provide insights"""
-    successful_searches = sum(1 for result in search_results if result.search_success)
-    total_products_found = sum(result.total_found for result in search_results)
+async def extract_parameters_with_culture(user_request: str, cultural_context_json: str = "") -> str:
+    """
+    Extract cooking parameters enhanced with cultural context intelligence.
     
-    # Calculate total estimated cost
-    total_cost = 0.0
-    for result in search_results:
-        if result.best_recommendation:
-            total_cost += result.best_recommendation.price
+    Args:
+        user_request: Original user request
+        cultural_context_json: Cultural analysis results for context-aware extraction
+        
+    Returns:
+        JSON string containing culturally-enhanced parameter extraction
+    """
+    start_time = time.time()
+    logger.info(f"🌍 Extracting parameters with cultural context for: {user_request[:50]}...")
     
-    success_rate = successful_searches / len(search_results) if search_results else 0
+    # Parse cultural context for enhanced analysis
+    cultural_insights = ""
+    detected_language = "unknown"
+    cultural_confidence = 0.5
     
-    # Determine budget compliance
-    budget_info = validation_data.get("automatic_selection_data", {}).get("budget_analysis", {})
-    expected_budget = budget_info.get("total_estimated_cost", 100.0)
+    if cultural_context_json:
+        try:
+            cultural_data = json.loads(cultural_context_json)
+            if cultural_data.get("status") == "success" and cultural_data.get("data"):
+                context = cultural_data["data"]
+                detected_language = context.get("language", {}).get("code", "unknown")
+                cultural_confidence = context.get("confidence_score", 0.5)
+                
+                cultural_insights = f"""
+                Cultural Context for Enhanced Parameter Extraction:
+                - Language: {context.get('language', {}).get('name', 'Unknown')} (confidence: {context.get('language', {}).get('confidence', 0.5)})
+                - Location: {context.get('location', {}).get('country', 'Unknown')}
+                - Cuisine Style: {context.get('cultural_indicators', {}).get('cuisine_style', 'unknown')}
+                - Meal Context: {context.get('cultural_indicators', {}).get('meal_context', 'unknown')}
+                - Cooking Approach: {context.get('cultural_indicators', {}).get('cooking_approach', 'unknown')}
+                - Budget Consciousness: {context.get('cultural_indicators', {}).get('budget_consciousness', 'unknown')}
+                - Social Dining: {context.get('cultural_indicators', {}).get('social_dining', 'unknown')}
+                - Traditional Dishes: {context.get('traditional_dishes', [])}
+                """
+        except Exception as e:
+            logger.warning(f"⚠️ Could not parse cultural context: {e}")
     
-    if total_cost <= expected_budget:
-        budget_compliance = "within_budget"
-    elif total_cost <= expected_budget * 1.2:
-        budget_compliance = "slightly_over"
-    else:
-        budget_compliance = "significantly_over"
+    # Enhanced parameter extraction prompt with cultural intelligence
+    prompt = f"""
+    Extract cooking parameters from: "{user_request}"
     
-    return {
-        "successful_searches": successful_searches,
-        "total_products_found": total_products_found,
-        "total_estimated_cost_ron": round(total_cost, 2),
-        "success_rate": round(success_rate, 2),
-        "budget_compliance": budget_compliance,
-        "average_products_per_ingredient": total_products_found / len(search_results) if search_results else 0
-    }
+    {cultural_insights}
+    
+    As a cultural cooking parameter specialist, enhance parameter extraction using cultural context:
+    
+    1. **Culturally-Informed Budget Analysis**:
+       - Apply cultural budget consciousness patterns
+       - Consider regional cost expectations and purchasing power
+       - Adjust budget estimates based on cuisine type and cultural context
+       - Factor in meal occasion and social dining expectations
+    
+    2. **Cultural Serving Size Intelligence**:
+       - Apply cultural family size and dining patterns
+       - Consider social dining context (individual, family, entertaining)
+       - Adjust for cultural portion expectations and meal sharing patterns
+       - Factor in cultural hospitality and food abundance expectations
+    
+    3. **Cultural Time and Approach Assessment**:
+       - Apply cultural cooking time preferences and traditions
+       - Consider cultural cooking approach (quick vs. elaborate preparation)
+       - Factor in cultural meal preparation rituals and expectations
+       - Assess urgency within cultural context of meal preparation
+    
+    4. **Cultural Dietary and Cuisine Intelligence**:
+       - Apply cultural dietary norms and traditional restrictions
+       - Consider regional ingredient availability and preferences
+       - Factor in cultural health consciousness and dietary trends
+       - Assess cuisine authenticity vs. adaptation flexibility
+    
+    5. **Cultural Occasion and Complexity Assessment**:
+       - Interpret meal occasion within cultural context
+       - Apply cultural cooking skill expectations and traditions
+       - Consider cultural equipment and cooking method preferences
+       - Factor in cultural presentation and authenticity requirements
+    
+    Return culturally-enhanced parameter analysis:
+    {{
+        "budget": {{
+            "amount_ron": culturally_adjusted_budget_estimate,
+            "confidence": "high|medium|low",
+            "explicit": true_if_explicitly_stated
+        }},
+        "servings": {{
+            "count": culturally_appropriate_serving_count,
+            "confidence": "high|medium|low", 
+            "explicit": true_if_explicitly_stated
+        }},
+        "time": {{
+            "minutes": culturally_informed_time_estimate,
+            "urgency": "immediate|flexible|leisurely",
+            "confidence": "high|medium|low"
+        }},
+        "meal_type": "breakfast|lunch|dinner|snack",
+        "meal_occasion": "everyday|special|celebration|comfort|romantic",
+        "dietary": {{
+            "restrictions": ["cultural_and_explicit_restrictions"],
+            "preferences": ["cultural_and_stated_preferences"],
+            "confidence": "high|medium|low"
+        }},
+        "difficulty_preference": "easy|medium|advanced|any",
+        "cuisine_type": "specific_cuisine_with_cultural_context"
+    }}
+    
+    Enhance all parameter estimates using cultural intelligence.
+    Provide higher confidence scores when cultural context supports parameter interpretation.
+    Consider cultural cooking traditions and modern adaptations in Romanian context.
+    """
+    
+    try:
+        # Use AI for culturally-enhanced analysis
+        client = await get_ai_client()
+        
+        response = await client.generate_text(
+            prompt=prompt,
+            temperature=settings.balanced_temperature,
+            agent_name="parameter_extraction_agent"
+        )
+        
+        if response.get("error"):
+            raise Exception(response["error"])
+        
+        # Parse and validate the response
+        content = response.get("content", "")
+        parameter_data_dict = json.loads(content)
+        
+        # Convert to CookingParameters model with error handling
+        try:
+            enhanced_parameters = CookingParameters(**parameter_data_dict)
+        except Exception as model_error:
+            logger.warning(f"⚠️ Enhanced parameter model validation failed: {model_error}")
+            # Fallback to basic parameter extraction
+            logger.info("📋 Falling back to basic parameter extraction")
+            return await extract_cooking_parameters(user_request)
+        
+        processing_time = int((time.time() - start_time) * 1000)
+        
+        # Count high-confidence parameters
+        parameters_found = sum([
+            1 for param_confidence in [
+                enhanced_parameters.budget.confidence,
+                enhanced_parameters.servings.confidence,
+                enhanced_parameters.time.confidence,
+                enhanced_parameters.dietary.confidence
+            ] if param_confidence in ["high", "medium"]
+        ])
+        
+        # Calculate enhanced confidence score
+        overall_confidence = _calculate_overall_confidence(enhanced_parameters)
+        if cultural_confidence > 0.7:
+            overall_confidence = min(1.0, overall_confidence + 0.1)  # Boost confidence with good cultural context
+        
+        logger.info(f"✅ Culturally-enhanced parameter extraction completed in {processing_time}ms")
+        logger.info(f"🎯 Cultural enhancement improved confidence to {overall_confidence:.2f}")
+        
+        # Create enhanced response
+        response = ParameterExtractionResponse(
+            status="success",
+            message="Culturally-enhanced parameter extraction completed",
+            agent_name="parameter_extraction_agent",
+            processing_time_ms=processing_time,
+            confidence_score=overall_confidence,
+            data=enhanced_parameters,
+            user_request=user_request,
+            parameters_found=parameters_found
+        )
+        
+        return response.json(ensure_ascii=False, indent=2)
+        
+    except Exception as e:
+        processing_time = int((time.time() - start_time) * 1000)
+        logger.error(f"❌ Culturally-enhanced parameter extraction failed: {e}")
+        
+        # Fallback to basic extraction if cultural enhancement fails
+        logger.info("📋 Falling back to basic parameter extraction")
+        return await extract_cooking_parameters(user_request)
+
+
+def _calculate_overall_confidence(parameters: CookingParameters) -> float:
+    """Calculate overall confidence score from individual parameter confidences"""
+    confidence_map = {"high": 1.0, "medium": 0.7, "low": 0.3}
+    
+    confidences = [
+        confidence_map.get(parameters.budget.confidence, 0.3),
+        confidence_map.get(parameters.servings.confidence, 0.3),
+        confidence_map.get(parameters.time.confidence, 0.3),
+        confidence_map.get(parameters.dietary.confidence, 0.3)
+    ]
+    
+    return sum(confidences) / len(confidences)

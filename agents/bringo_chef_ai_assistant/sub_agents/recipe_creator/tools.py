@@ -9,10 +9,10 @@ import json
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-from ....shared.client import get_ai_client, call_ai_with_validation
-from ....shared.models import RecipeData, RecipeCreationResponse, RecipeIngredient, RecipeInstruction, NutritionInfo, CostAnalysis
-from ....shared.responses import create_success_response, create_error_response
-from ....shared.config import settings
+from ...shared.client import get_ai_client
+from ...shared.models import RecipeData, RecipeCreationResponse, RecipeIngredient, RecipeInstruction, NutritionInfo, CostAnalysis
+from ...shared.responses import create_success_response, create_error_response
+from ...shared.config import settings
 
 logger = logging.getLogger("recipe_creator_tools")
 
@@ -77,7 +77,7 @@ async def create_comprehensive_recipe(
                 cultural_adaptations=recipe_result.get("cultural_adaptations", [])
             )
             
-            return response.json(ensure_ascii=False, indent=2)
+            return response.model_dump_json(indent=2)
         else:
             raise Exception(recipe_result.get("error", "Recipe creation failed"))
             
@@ -94,7 +94,7 @@ async def create_comprehensive_recipe(
             recipe_created=False
         )
         
-        return fallback_response.json(ensure_ascii=False, indent=2)
+        return fallback_response.model_dump_json(indent=2)
 
 
 async def create_culturally_adapted_recipe(
@@ -691,39 +691,58 @@ def _convert_to_recipe_model(recipe_data: Dict[str, Any]) -> RecipeData:
         # Extract and validate ingredients
         ingredients = []
         for ing_data in recipe_data.get("ingredients", []):
-            product_rec = ing_data.get("product_recommendation")
-            product_info = None
-            if product_rec:
-                from ....shared.models import ProductInfo
-                product_info = ProductInfo(
-                    name=product_rec.get("name", ""),
-                    price=float(product_rec.get("price", 0)),
-                    url=product_rec.get("url", ""),
-                    available=True,
-                    relevance_score=1.0
+            try:
+                product_rec = ing_data.get("product_recommendation")
+                product_info = None
+                if product_rec:
+                    from ..shared.models import ProductInfo
+                    product_info = ProductInfo(
+                        name=product_rec.get("name", ""),
+                        price=float(product_rec.get("price", 0)),
+                        url=product_rec.get("url", ""),
+                        available=True,
+                        relevance_score=1.0
+                    )
+                
+                ingredient = RecipeIngredient(
+                    name=ing_data.get("name", ""),
+                    quantity=ing_data.get("quantity", "1"),
+                    unit=ing_data.get("unit", "piece"),
+                    product_recommendation=product_info,
+                    preparation_notes=ing_data.get("preparation_notes")
                 )
-            
-            ingredient = RecipeIngredient(
-                name=ing_data.get("name", ""),
-                quantity=ing_data.get("quantity", "1"),
-                unit=ing_data.get("unit", "piece"),
-                product_recommendation=product_info,
-                preparation_notes=ing_data.get("preparation_notes")
-            )
-            ingredients.append(ingredient)
+                ingredients.append(ingredient)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to convert ingredient: {e}")
+                # Add basic ingredient without product info
+                ingredient = RecipeIngredient(
+                    name=ing_data.get("name", "ingredient"),
+                    quantity="1",
+                    unit="piece"
+                )
+                ingredients.append(ingredient)
         
         # Extract and validate instructions
         instructions = []
         for inst_data in recipe_data.get("instructions", []):
-            instruction = RecipeInstruction(
-                step=inst_data.get("step", 1),
-                description=inst_data.get("description", ""),
-                time_minutes=inst_data.get("time_minutes"),
-                technique=inst_data.get("technique"),
-                tips=inst_data.get("tips"),
-                temperature=inst_data.get("temperature")
-            )
-            instructions.append(instruction)
+            try:
+                instruction = RecipeInstruction(
+                    step=inst_data.get("step", 1),
+                    description=inst_data.get("description", ""),
+                    time_minutes=inst_data.get("time_minutes"),
+                    technique=inst_data.get("technique"),
+                    tips=inst_data.get("tips"),
+                    temperature=inst_data.get("temperature")
+                )
+                instructions.append(instruction)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to convert instruction: {e}")
+                # Add basic instruction
+                instruction = RecipeInstruction(
+                    step=len(instructions) + 1,
+                    description=inst_data.get("description", "Follow cooking instructions")
+                )
+                instructions.append(instruction)
         
         # Extract nutrition info
         nutrition_data = recipe_data.get("nutrition_per_serving", {})
@@ -745,25 +764,42 @@ def _convert_to_recipe_model(recipe_data: Dict[str, Any]) -> RecipeData:
         )
         
         # Create complete recipe model
-        recipe = RecipeData(
-            name=recipe_data.get("name", "Delicious Recipe"),
-            description=recipe_data.get("description", "A wonderful homemade dish"),
-            cuisine_type=recipe_data.get("cuisine_type", "international"),
-            difficulty=recipe_data.get("difficulty", "medium"),
-            prep_time_minutes=recipe_data.get("prep_time_minutes", 20),
-            cook_time_minutes=recipe_data.get("cook_time_minutes", 30),
-            total_time_minutes=recipe_data.get("total_time_minutes", 50),
-            servings=recipe_data.get("servings", 4),
-            ingredients=ingredients,
-            instructions=instructions,
-            equipment=recipe_data.get("equipment", []),
-            nutrition_per_serving=nutrition,
-            serving_suggestions=recipe_data.get("serving_suggestions", []),
-            storage_instructions=recipe_data.get("storage_instructions"),
-            variations=recipe_data.get("variations", []),
-            chef_notes=recipe_data.get("chef_notes", []),
-            cost_analysis=cost_analysis
-        )
+        try:
+            recipe = RecipeData(
+                name=recipe_data.get("name", "Delicious Recipe"),
+                description=recipe_data.get("description", "A wonderful homemade dish"),
+                cuisine_type=recipe_data.get("cuisine_type", "international"),
+                difficulty=recipe_data.get("difficulty", "medium"),
+                prep_time_minutes=recipe_data.get("prep_time_minutes", 20),
+                cook_time_minutes=recipe_data.get("cook_time_minutes", 30),
+                total_time_minutes=recipe_data.get("total_time_minutes", 50),
+                servings=recipe_data.get("servings", 4),
+                ingredients=ingredients,
+                instructions=instructions,
+                equipment=recipe_data.get("equipment", []),
+                nutrition_per_serving=nutrition,
+                serving_suggestions=recipe_data.get("serving_suggestions", []),
+                storage_instructions=recipe_data.get("storage_instructions"),
+                variations=recipe_data.get("variations", []),
+                chef_notes=recipe_data.get("chef_notes", []),
+                cost_analysis=cost_analysis
+            )
+        except Exception as e:
+            logger.error(f"❌ Recipe model creation failed: {e}")
+            # Return basic fallback recipe
+            recipe = RecipeData(
+                name="Simple Recipe",
+                description="A basic recipe created from available data",
+                cuisine_type="international",
+                difficulty="easy",
+                prep_time_minutes=15,
+                cook_time_minutes=25,
+                total_time_minutes=40,
+                servings=4,
+                ingredients=ingredients[:5],  # Use first 5 ingredients
+                instructions=instructions[:5] if instructions else [RecipeInstruction(step=1, description="Prepare ingredients and cook as desired")],
+                cost_analysis=cost_analysis
+            )
         
         return recipe
         

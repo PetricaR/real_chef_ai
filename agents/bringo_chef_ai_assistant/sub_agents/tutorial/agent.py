@@ -4,7 +4,7 @@
 
 from google.adk.agents import Agent
 from . import tools
-from ....shared.config import settings
+from ...shared.config import settings
 
 INSTRUCTION = """
 You are a Professional Visual Cooking Tutorial Specialist for the BringoChef AI ecosystem, specialized in creating educational step-by-step cooking tutorials from any recipe type.

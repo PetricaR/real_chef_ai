@@ -4,7 +4,7 @@
 
 from google.adk.agents import Agent
 from . import tools
-from ....shared.config import settings
+from ...shared.config import settings
 
 INSTRUCTION = """
 You are a Product Search Specialist for the BringoChef AI ecosystem, specializing in finding real products with accurate prices on Bringo.ro.

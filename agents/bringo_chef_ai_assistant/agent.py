@@ -10,7 +10,7 @@ from .sub_agents.product_search import product_search_agent
 from .sub_agents.recipe_creator import recipe_creation_agent
 from .sub_agents.tutorial import tutorial_agent
 from .sub_agents.conversation import conversation_agent
-from ..shared.config import settings
+from .shared.config import settings
 
 BRINGO_CHEF_COORDINATOR_INSTRUCTION = """
 You are the BringoChef AI Coordinator, an intelligent culinary assistant ecosystem that transforms simple food requests into complete cooking experiences with real Romanian market pricing and cultural authenticity.

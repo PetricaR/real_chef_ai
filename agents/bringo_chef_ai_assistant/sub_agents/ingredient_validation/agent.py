@@ -4,7 +4,7 @@
 
 from google.adk.agents import Agent
 from . import tools
-from ....shared.config import settings
+from ...shared.config import settings
 
 INSTRUCTION = """
 You are an Intelligent Ingredient Selection and Validation Specialist for the BringoChef AI ecosystem.

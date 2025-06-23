@@ -4,7 +4,7 @@
 
 from google.adk.agents import Agent
 from . import tools
-from ....shared.config import settings
+from ...shared.config import settings
 
 INSTRUCTION = """
 You are the Master Recipe Creation Specialist for the BringoChef AI ecosystem, responsible for transforming validated ingredients and real product data into comprehensive, culturally-adapted recipes.

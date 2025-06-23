@@ -10,10 +10,10 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from google.adk.tools import ToolContext
 
-from ....shared.client import get_ai_client
-from ....shared.models import TutorialData, TutorialStep, TutorialResponse
-from ....shared.responses import create_success_response, create_error_response
-from ....shared.config import settings
+from ...shared.client import get_ai_client
+from ...shared.models import TutorialData, TutorialStep, TutorialResponse
+from ...shared.responses import create_success_response, create_error_response
+from ...shared.config import settings
 
 logger = logging.getLogger("tutorial_tools")
 
@@ -268,7 +268,7 @@ async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) 
             images_generated=successful_images
         )
         
-        return response.json(ensure_ascii=False, indent=2)
+        return response.model_dump_json(indent=2)
         
     except Exception as e:
         processing_time = int((time.time() - start_time) * 1000)
@@ -284,7 +284,7 @@ async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) 
             images_generated=0
         )
         
-        return error_response.json(ensure_ascii=False, indent=2)
+        return error_response.model_dump_json(indent=2)
 
 
 async def optimize_tutorial_for_learning(tutorial_json: str, learning_objectives: List[str] = None) -> str:
@@ -669,9 +669,14 @@ async def _generate_single_tutorial_image(
             raise Exception(image_result["error"])
         
         # Save image using tool context
+        from google.genai import types as genai_types
+        
         await tool_context.save_artifact(
             filename,
-            image_result["image_data"]
+            genai_types.Part.from_bytes(
+                data=image_result["image_data"],
+                mime_type='image/png'
+            )
         )
         
         logger.info(f"✅ Generated tutorial image for step {step.step_number}: {filename}")

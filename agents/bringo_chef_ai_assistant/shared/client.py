@@ -1,4 +1,4 @@
-# agents/shared/client.py
+# agents/bringo_chef_ai_assistant/shared/client.py
 # Professional async AI client with threading support for optimal performance
 # Handles all AI communication with proper error handling and rate limiting
 
@@ -12,7 +12,6 @@ from contextlib import asynccontextmanager
 
 from google import genai
 from google.genai import types
-from google.cloud import secretmanager
 
 from .config import settings
 from .models import StandardResponse, StatusType
@@ -36,12 +35,21 @@ class AsyncAIClient:
         self._executor = ThreadPoolExecutor(max_workers=settings.max_concurrent_requests)
         self._rate_limiter = asyncio.Semaphore(settings.max_concurrent_requests)
         self._initialized = False
+        self._initializing = False  # Prevent recursive initialization
         
     async def initialize(self) -> bool:
         """Initialize the AI client with proper authentication"""
         if self._initialized:
             return True
             
+        if self._initializing:
+            # Wait for ongoing initialization
+            while self._initializing and not self._initialized:
+                await asyncio.sleep(0.1)
+            return self._initialized
+            
+        self._initializing = True
+        
         try:
             # Initialize Vertex AI client
             self._client = genai.Client(
@@ -50,8 +58,8 @@ class AsyncAIClient:
                 location=settings.location
             )
             
-            # Test the connection
-            await self._test_connection()
+            # Test the connection with direct API call (avoid recursion)
+            await self._test_connection_direct()
             self._initialized = True
             logger.info("✅ AI client initialized successfully")
             return True
@@ -59,17 +67,40 @@ class AsyncAIClient:
         except Exception as e:
             logger.error(f"❌ Failed to initialize AI client: {e}")
             return False
+        finally:
+            self._initializing = False
     
-    async def _test_connection(self) -> None:
-        """Test AI client connection with a simple request"""
-        test_prompt = "Respond with: 'connection_test_successful'"
-        response = await self.generate_text(
-            prompt=test_prompt,
-            temperature=0.0,
-            max_tokens=50
-        )
-        if "connection_test_successful" not in response.get("content", ""):
-            raise Exception("AI client connection test failed")
+    async def _test_connection_direct(self) -> None:
+        """Test AI client connection with a direct API call"""
+        if not self._client:
+            raise Exception("Client not initialized")
+            
+        try:
+            test_prompt = "Respond with: 'connection_test_successful'"
+            
+            # Direct API call without going through generate_text to avoid recursion
+            config = types.GenerateContentConfig(
+                temperature=0.0,
+                max_output_tokens=50,
+                response_mime_type="text/plain"
+            )
+            
+            response = await asyncio.get_event_loop().run_in_executor(
+                self._executor,
+                lambda: self._client.models.generate_content(
+                    model=settings.text_model,
+                    contents=[types.Content(role="user", parts=[types.Part(text=test_prompt)])],
+                    config=config
+                )
+            )
+            
+            response_text = response.text if response and hasattr(response, 'text') else ""
+            
+            if not response_text or "connection_test_successful" not in response_text:
+                raise Exception("AI client connection test failed - unexpected response")
+                
+        except Exception as e:
+            raise Exception(f"AI client connection test failed: {str(e)}")
     
     @asynccontextmanager
     async def _rate_limited(self):
@@ -98,11 +129,24 @@ class AsyncAIClient:
         Returns:
             Dict containing the AI response and metadata
         """
-        if not self._initialized:
-            await self.initialize()
+        # Initialize if needed (but avoid recursive calls during initialization)
+        if not self._initialized and not self._initializing:
+            initialization_success = await self.initialize()
+            if not initialization_success:
+                return {
+                    "error": "AI client initialization failed",
+                    "content": None,
+                    "processing_time_ms": 0,
+                    "agent_name": agent_name
+                }
             
         if not self._client:
-            return {"error": "AI client not available", "content": None}
+            return {
+                "error": "AI client not available", 
+                "content": None,
+                "processing_time_ms": 0,
+                "agent_name": agent_name
+            }
         
         # Use defaults if not specified
         temperature = temperature or settings.conservative_temperature
@@ -153,19 +197,27 @@ class AsyncAIClient:
         response_format: str
     ) -> str:
         """Synchronous text generation for executor"""
-        config = types.GenerateContentConfig(
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-            response_mime_type="application/json" if response_format == "json" else "text/plain"
-        )
-        
-        response = self._client.models.generate_content(
-            model=settings.text_model,
-            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-            config=config
-        )
-        
-        return response.text
+        try:
+            config = types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                response_mime_type="application/json" if response_format == "json" else "text/plain"
+            )
+            
+            response = self._client.models.generate_content(
+                model=settings.text_model,
+                contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+                config=config
+            )
+            
+            if not response or not hasattr(response, 'text'):
+                raise Exception("Invalid response from AI model")
+                
+            return response.text
+            
+        except Exception as e:
+            logger.error(f"Sync text generation error: {e}")
+            raise
     
     async def generate_images(
         self,
@@ -182,7 +234,7 @@ class AsyncAIClient:
         Returns:
             List of generation results
         """
-        if not self._initialized:
+        if not self._initialized and not self._initializing:
             await self.initialize()
             
         if not self._client:
@@ -229,7 +281,7 @@ class AsyncAIClient:
         total_steps: int
     ) -> Dict[str, Any]:
         """Generate a single image with error handling"""
-        async with self._rate_limited():
+        async with self._rate_limiter:
             try:
                 # Add small delay between generations to avoid rate limits
                 if step_number > 1:
@@ -261,65 +313,28 @@ class AsyncAIClient:
     
     def _sync_generate_image(self, prompt: str) -> bytes:
         """Synchronous image generation for executor"""
-        response = self._client.models.generate_images(
-            model=settings.image_model,
-            prompt=prompt,
-            config={'number_of_images': 1}
-        )
-        
-        if not response.generated_images:
-            raise Exception("No images generated")
-            
-        return response.generated_images[0].image.image_bytes
-    
-    async def parallel_text_generation(
-        self,
-        prompts: List[Dict[str, Any]],
-        agent_name: str = "unknown"
-    ) -> List[Dict[str, Any]]:
-        """
-        Generate multiple text responses in parallel
-        
-        Args:
-            prompts: List of prompt configurations with keys: 'prompt', 'temperature', 'max_tokens'
-            agent_name: Calling agent name
-            
-        Returns:
-            List of generation results
-        """
-        logger.info(f"🔄 Running {len(prompts)} parallel text generations for {agent_name}")
-        
-        tasks = []
-        for i, prompt_config in enumerate(prompts):
-            task = self.generate_text(
-                prompt=prompt_config.get("prompt"),
-                temperature=prompt_config.get("temperature"),
-                max_tokens=prompt_config.get("max_tokens"),
-                response_format=prompt_config.get("response_format", "json"),
-                agent_name=f"{agent_name}_task_{i+1}"
+        try:
+            response = self._client.models.generate_images(
+                model=settings.image_model,
+                prompt=prompt,
+                config={'number_of_images': 1}
             )
-            tasks.append(task)
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                processed_results.append({
-                    "error": str(result),
-                    "content": None,
-                    "task_number": i + 1
-                })
-            else:
-                processed_results.append({**result, "task_number": i + 1})
-        
-        return processed_results
+            
+            if not response.generated_images:
+                raise Exception("No images generated")
+                
+            return response.generated_images[0].image.image_bytes
+            
+        except Exception as e:
+            logger.error(f"Sync image generation error: {e}")
+            raise
     
     async def close(self):
         """Cleanup resources"""
         if self._executor:
             self._executor.shutdown(wait=True)
+        self._initialized = False
+        self._initializing = False
         logger.info("🧹 AI client resources cleaned up")
 
 
@@ -333,70 +348,7 @@ async def get_ai_client() -> AsyncAIClient:
     
     if _ai_client is None:
         _ai_client = AsyncAIClient()
-        await _ai_client.initialize()
+        # Don't auto-initialize here to avoid issues
+        # Let the first call to generate_text handle initialization
     
     return _ai_client
-
-
-async def call_ai_with_validation(
-    prompt: str,
-    expected_model: type,
-    agent_name: str = "unknown",
-    temperature: float = None,
-    max_retries: int = None
-) -> Dict[str, Any]:
-    """
-    Call AI with automatic response validation using Pydantic models
-    
-    Args:
-        prompt: The AI prompt
-        expected_model: Pydantic model class for validation
-        agent_name: Calling agent name
-        temperature: AI temperature
-        max_retries: Maximum retry attempts
-        
-    Returns:
-        Validated response or error information
-    """
-    client = await get_ai_client()
-    max_retries = max_retries or settings.max_retry_attempts
-    
-    for attempt in range(max_retries):
-        try:
-            # Generate response
-            response = await client.generate_text(
-                prompt=prompt,
-                temperature=temperature,
-                agent_name=agent_name
-            )
-            
-            if response.get("error"):
-                raise Exception(response["error"])
-            
-            # Parse and validate JSON
-            content = response.get("content", "")
-            parsed_data = json.loads(content)
-            
-            # Validate with Pydantic model
-            validated_data = expected_model(**parsed_data)
-            
-            return {
-                "success": True,
-                "data": validated_data,
-                "raw_response": response,
-                "attempt": attempt + 1
-            }
-            
-        except json.JSONDecodeError as e:
-            logger.warning(f"⚠️ JSON parsing failed on attempt {attempt + 1}: {e}")
-        except Exception as e:
-            logger.warning(f"⚠️ Validation failed on attempt {attempt + 1}: {e}")
-        
-        if attempt < max_retries - 1:
-            await asyncio.sleep(1)  # Brief pause before retry
-    
-    return {
-        "success": False,
-        "error": f"Failed after {max_retries} attempts",
-        "data": None
-    }

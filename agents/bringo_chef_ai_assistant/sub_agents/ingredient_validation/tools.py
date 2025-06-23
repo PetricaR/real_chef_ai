@@ -9,10 +9,10 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any
 
-from ....shared.client import get_ai_client, call_ai_with_validation
-from ....shared.models import IngredientValidation, IngredientValidationResponse
-from ....shared.responses import create_success_response, create_error_response
-from ....shared.config import settings
+from ...shared.client import get_ai_client
+from ...shared.models import IngredientValidation, IngredientValidationResponse
+from ...shared.responses import create_success_response, create_error_response
+from ...shared.config import settings
 
 logger = logging.getLogger("ingredient_tools")
 
@@ -205,7 +205,7 @@ async def select_and_validate_ingredients(
             validation_success_rate=0.0
         )
         
-        return fallback_response.json(ensure_ascii=False, indent=2)
+        return fallback_response.model_dump_json(indent=2)
 
 
 async def validate_ingredients_with_context(
@@ -231,7 +231,7 @@ async def validate_ingredients_with_context(
         return create_error_response(
             agent_name="ingredient_validation_agent",
             error_message="No ingredients provided for validation"
-        ).json(ensure_ascii=False)
+        ).model_dump_json()
     
     # Parse ingredients from the list
     ingredients = [ing.strip() for ing in ingredients_list.split(",") if ing.strip()]
@@ -240,7 +240,7 @@ async def validate_ingredients_with_context(
         return create_error_response(
             agent_name="ingredient_validation_agent",
             error_message="Could not parse any valid ingredients from the list"
-        ).json(ensure_ascii=False)
+        ).model_dump_json()
     
     # Parse context information
     context_summary = await _parse_context_for_selection(cultural_context_json, parameters_json)
@@ -371,7 +371,7 @@ async def validate_ingredients_with_context(
             validation_success_rate=0.0
         )
         
-        return error_response.json(ensure_ascii=False, indent=2)
+        return error_response.model_dump_json(indent=2)
 
 
 async def _parse_context_for_selection(cultural_context_json: str, parameters_json: str) -> str:

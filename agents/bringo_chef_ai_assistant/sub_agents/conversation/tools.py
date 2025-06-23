@@ -9,10 +9,10 @@ import json
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-from ....shared.client import get_ai_client
-from ....shared.models import ConversationResponse
-from ....shared.responses import create_success_response, create_error_response
-from ....shared.config import settings
+from ...shared.client import get_ai_client
+from ...shared.models import ConversationResponse
+from ...shared.responses import create_success_response, create_error_response
+from ...shared.config import settings
 
 logger = logging.getLogger("conversation_tools")
 
@@ -222,7 +222,7 @@ async def create_recipe_presentation(
             conversation_stage="recipe_completed"
         )
         
-        return fallback_response.json(ensure_ascii=False, indent=2)
+        return fallback_response.model_dump_json(indent=2)
 
 
 async def create_tutorial_presentation(tutorial_json: str) -> str:
@@ -407,7 +407,7 @@ async def create_tutorial_presentation(tutorial_json: str) -> str:
             conversation_stage="tutorial_completed"
         )
         
-        return fallback_response.json(ensure_ascii=False, indent=2)
+        return fallback_response.model_dump_json(indent=2)
 
 
 async def manage_conversation_flow(

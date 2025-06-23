@@ -14,10 +14,10 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-from ....shared.client import get_ai_client
-from ....shared.models import ProductInfo, ProductSearchResult, ProductSearchResponse
-from ....shared.responses import create_success_response, create_error_response
-from ....shared.config import settings
+from ...shared.client import get_ai_client
+from ...shared.models import ProductInfo, ProductSearchResult, ProductSearchResponse
+from ...shared.responses import create_success_response, create_error_response
+from ...shared.config import settings
 
 logger = logging.getLogger("product_search_tools")
 

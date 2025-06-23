@@ -1,4 +1,4 @@
-# agents/shared/models.py
+# agents/bringo_chef_ai_assistant/shared/models.py
 # Pydantic models for BringoChef AI - type-safe data structures for inter-agent communication
 # Professional, flexible models without hardcoded assumptions
 

@@ -5,12 +5,13 @@
 import asyncio
 import logging
 import time
+import json
 from datetime import datetime
 
-from ....shared.client import get_ai_client, call_ai_with_validation
-from ....shared.models import CulturalAnalysis, CulturalAnalysisResponse
-from ....shared.responses import create_success_response, create_error_response
-from ....shared.config import settings
+from ...shared.client import get_ai_client
+from ...shared.models import CulturalAnalysis, CulturalAnalysisResponse, LanguageInfo, LocationInfo, CulturalIndicators
+from ...shared.responses import create_success_response, create_error_response
+from ...shared.config import settings
 
 logger = logging.getLogger("cultural_tools")
 
@@ -32,7 +33,7 @@ async def detect_language_and_culture(user_request: str) -> str:
         return create_error_response(
             agent_name="cultural_context_agent",
             error_message="User request is too short for meaningful cultural analysis"
-        ).json(ensure_ascii=False)
+        ).model_dump_json()
     
     # Professional AI prompt for language and cultural detection
     prompt = f"""
@@ -100,19 +101,43 @@ async def detect_language_and_culture(user_request: str) -> str:
     """
     
     try:
-        # Use AI client with validation
-        result = await call_ai_with_validation(
+        # Use AI client for analysis
+        client = await get_ai_client()
+        
+        response = await client.generate_text(
             prompt=prompt,
-            expected_model=CulturalAnalysis,
-            agent_name="cultural_context_agent",
-            temperature=settings.conservative_temperature
+            temperature=settings.conservative_temperature,
+            agent_name="cultural_context_agent"
         )
         
-        if not result["success"]:
-            raise Exception(result["error"])
+        if response.get("error"):
+            raise Exception(response["error"])
+        
+        # Parse and validate the response
+        content = response.get("content", "")
+        cultural_data_dict = json.loads(content)
+        
+        # Convert to CulturalAnalysis model with error handling
+        try:
+            cultural_data = CulturalAnalysis(**cultural_data_dict)
+        except Exception as model_error:
+            logger.warning(f"⚠️ Model validation failed: {model_error}")
+            # Create a minimal valid model
+            cultural_data = CulturalAnalysis(
+                language=LanguageInfo(code="ro", name="Romanian", confidence=0.5),
+                location=LocationInfo(country="Romania", confidence=0.5),
+                cultural_indicators=CulturalIndicators(
+                    cuisine_style="international",
+                    meal_context="casual", 
+                    cooking_approach="moderate",
+                    budget_consciousness="medium",
+                    time_approach="flexible",
+                    social_dining="family"
+                ),
+                confidence_score=0.5
+            )
         
         processing_time = int((time.time() - start_time) * 1000)
-        cultural_data = result["data"]
         
         logger.info(f"✅ Cultural analysis completed in {processing_time}ms")
         logger.info(f"🎯 Detected: {cultural_data.language.name} ({cultural_data.language.confidence:.2f} confidence)")
@@ -129,7 +154,7 @@ async def detect_language_and_culture(user_request: str) -> str:
             detected_language=cultural_data.language.code
         )
         
-        return response.json(ensure_ascii=False, indent=2)
+        return response.model_dump_json(indent=2)
         
     except Exception as e:
         processing_time = int((time.time() - start_time) * 1000)
@@ -147,7 +172,7 @@ async def detect_language_and_culture(user_request: str) -> str:
             data=None
         )
         
-        return fallback_response.json(ensure_ascii=False, indent=2)
+        return fallback_response.model_dump_json(indent=2)
 
 
 async def analyze_cultural_context(user_request: str, basic_analysis_json: str = "") -> str:
@@ -251,18 +276,47 @@ async def analyze_cultural_context(user_request: str, basic_analysis_json: str =
     
     try:
         # Use AI for enhanced analysis
-        result = await call_ai_with_validation(
+        client = await get_ai_client()
+        
+        response = await client.generate_text(
             prompt=prompt,
-            expected_model=CulturalAnalysis,
-            agent_name="cultural_context_agent", 
-            temperature=settings.balanced_temperature
+            temperature=settings.balanced_temperature,
+            agent_name="cultural_context_agent"
         )
         
-        if not result["success"]:
-            raise Exception(result["error"])
+        if response.get("error"):
+            raise Exception(response["error"])
+        
+        # Parse and validate the response
+        content = response.get("content", "")
+        cultural_data_dict = json.loads(content)
+        
+        # Convert to CulturalAnalysis model with error handling
+        try:
+            enhanced_data = CulturalAnalysis(**cultural_data_dict)
+        except Exception as model_error:
+            logger.warning(f"⚠️ Enhanced model validation failed: {model_error}")
+            # Fallback to basic analysis if enhancement fails
+            if basic_analysis_json:
+                logger.info("📋 Returning basic analysis due to enhancement failure")
+                return basic_analysis_json
+            else:
+                # Create minimal fallback
+                enhanced_data = CulturalAnalysis(
+                    language=LanguageInfo(code="ro", name="Romanian", confidence=0.5),
+                    location=LocationInfo(country="Romania", confidence=0.5),
+                    cultural_indicators=CulturalIndicators(
+                        cuisine_style="international",
+                        meal_context="casual",
+                        cooking_approach="moderate", 
+                        budget_consciousness="medium",
+                        time_approach="flexible",
+                        social_dining="family"
+                    ),
+                    confidence_score=0.5
+                )
         
         processing_time = int((time.time() - start_time) * 1000)
-        enhanced_data = result["data"]
         
         logger.info(f"✅ Enhanced cultural analysis completed in {processing_time}ms")
         logger.info(f"🎯 Cultural style: {enhanced_data.cultural_indicators.cuisine_style}")
@@ -280,7 +334,7 @@ async def analyze_cultural_context(user_request: str, basic_analysis_json: str =
             detected_language=enhanced_data.language.code
         )
         
-        return response.json(ensure_ascii=False, indent=2)
+        return response.model_dump_json(indent=2)
         
     except Exception as e:
         processing_time = int((time.time() - start_time) * 1000)
@@ -300,4 +354,4 @@ async def analyze_cultural_context(user_request: str, basic_analysis_json: str =
             user_request=user_request
         )
         
-        return error_response.json(ensure_ascii=False, indent=2)
+        return error_response.model_dump_json(indent=2)

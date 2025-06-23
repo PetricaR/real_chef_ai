@@ -4,7 +4,7 @@
 
 from google.adk.agents import Agent
 from . import tools
-from ....shared.config import settings
+from ...shared.config import settings
 
 INSTRUCTION = """
 You are the Conversation Management and Presentation Specialist for the BringoChef AI ecosystem, responsible for creating beautiful, engaging presentations and managing conversation flow.

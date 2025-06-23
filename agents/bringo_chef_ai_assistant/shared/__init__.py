@@ -1,6 +1,6 @@
-# agents/shared/__init__.py
+# agents/bringo_chef_ai_assistant/shared/__init__.py
 # Shared foundation module for BringoChef AI - provides common utilities, models, and configuration
-# Pure AI-driven approach with async/threading support for optimal performance
+# This module centralizes all shared functionality to ensure consistency across all agents
 
 from .config import settings
 from .models import *
