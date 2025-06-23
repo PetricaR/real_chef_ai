@@ -2,7 +2,6 @@
 import logging
 import json
 import asyncio
-import re
 from datetime import datetime
 from google.adk.tools import ToolContext
 
@@ -50,71 +49,9 @@ def _call_ai_text(prompt: str, temperature: float = 0.1) -> dict:
         logger.error(f"AI text call failed: {e}")
         return {"error": str(e)}
 
-def extract_recipe_from_context(conversation_context: str = "") -> str:
-    """
-    Extract the most recent successful recipe creation from conversation context.
-    This enables auto-triggering of tutorial generation.
-    """
-    logger.info("🔍 Extracting recipe data from conversation context for auto-tutorial...")
-    
-    try:
-        # Look for the most recent successful recipe creation in the conversation
-        # Pattern to find JSON recipe data
-        json_pattern = r'\{[^{}]*"status":\s*"success"[^{}]*"recipe_data"[^{}]*\}'
-        
-        # More robust pattern for nested JSON
-        nested_pattern = r'\{(?:[^{}]|\{[^{}]*\})*"recipe_data"(?:[^{}]|\{[^{}]*\})*\}'
-        
-        matches = re.findall(nested_pattern, conversation_context, re.DOTALL)
-        
-        if not matches:
-            # Fallback: look for simpler patterns
-            simple_pattern = r'"recipe_data":\s*\{[^}]+\}'
-            matches = re.findall(simple_pattern, conversation_context)
-        
-        if matches:
-            # Try to parse the last match (most recent)
-            latest_match = matches[-1]
-            try:
-                # If it's a partial match, try to reconstruct
-                if not latest_match.startswith('{'):
-                    latest_match = '{' + latest_match + '}'
-                
-                recipe_data = json.loads(latest_match)
-                
-                logger.info("✅ Successfully extracted recipe data from context")
-                return json.dumps({
-                    "status": "success",
-                    "message": "Recipe data extracted from conversation context",
-                    "recipe_data": recipe_data,
-                    "auto_extracted": True,
-                    "extracted_at": datetime.now().isoformat()
-                })
-                
-            except json.JSONDecodeError:
-                logger.warning("⚠️ Found recipe pattern but couldn't parse JSON")
-        
-        # If no recipe found, return appropriate response
-        logger.info("📝 No recipe data found in context - requesting manual input")
-        return json.dumps({
-            "status": "no_recipe_found",
-            "message": "Am primit controlul pentru tutorial, dar nu găsesc datele rețetei în context. Te rog să îmi transmiți JSON-ul cu rețeta creată sau să creezi mai întâi o rețetă.",
-            "action_needed": "provide_recipe_data",
-            "searched_at": datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Error extracting recipe from context: {e}")
-        return json.dumps({
-            "status": "error",
-            "message": f"Error extracting recipe data: {str(e)}",
-            "action_needed": "provide_recipe_data_manually"
-        })
-
 def analyze_recipe_for_tutorial(recipe_json: str) -> str:
     """
     Analyze an already created recipe to determine tutorial suitability.
-    Enhanced to handle auto-extracted recipe data.
     """
     logger.info("🧠 Analyzing recipe for tutorial creation...")
     
@@ -126,25 +63,15 @@ def analyze_recipe_for_tutorial(recipe_json: str) -> str:
             "message": "Invalid recipe JSON provided"
         })
     
-    # Handle auto-extracted data
-    if recipe_data.get("auto_extracted"):
-        logger.info("📥 Processing auto-extracted recipe data")
-        recipe_data = recipe_data.get("recipe_data", {})
-    
     if recipe_data.get("status") != "success":
         return json.dumps({
             "status": "error",
             "message": "Invalid or failed recipe data provided"
         })
     
-    # Extract recipe information from the correct structure
+    # FIX: Extract recipe information from the correct structure
     recipe_info = recipe_data.get("recipe_data", {}).get("recipe", {})
     cost_analysis = recipe_data.get("recipe_data", {}).get("cost_analysis", {})
-    
-    # Fallback if structure is different
-    if not recipe_info and "recipe" in recipe_data:
-        recipe_info = recipe_data.get("recipe", {})
-        cost_analysis = recipe_data.get("cost_analysis", {})
     
     if not recipe_info:
         return json.dumps({
@@ -245,7 +172,6 @@ def analyze_recipe_for_tutorial(recipe_json: str) -> str:
 async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) -> str:
     """
     Generate exactly 7 detailed tutorial images DYNAMICALLY from any recipe.
-    Enhanced to handle auto-extracted recipe data and better error handling.
     """
     logger.info("🎨 Generating DYNAMIC 7-step visual tutorial from actual recipe...")
     
@@ -257,25 +183,15 @@ async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) 
             "message": "Invalid recipe JSON provided"
         })
     
-    # Handle auto-extracted data
-    if recipe_data.get("auto_extracted"):
-        logger.info("📥 Processing auto-extracted recipe data for tutorial generation")
-        recipe_data = recipe_data.get("recipe_data", {})
-    
     if recipe_data.get("status") != "success":
         return json.dumps({
             "status": "error", 
             "message": "Recipe creation failed, cannot create tutorial"
         })
     
-    # Extract recipe information from the correct structure
+    # FIX: Extract recipe information from the correct structure
     recipe_info = recipe_data.get("recipe_data", {}).get("recipe", {})
     cost_analysis = recipe_data.get("recipe_data", {}).get("cost_analysis", {})
-    
-    # Fallback if structure is different
-    if not recipe_info and "recipe" in recipe_data:
-        recipe_info = recipe_data.get("recipe", {})
-        cost_analysis = recipe_data.get("cost_analysis", {})
     
     if not recipe_info:
         return json.dumps({

@@ -106,6 +106,5 @@ tutorial_agent = Agent(
     tools=[
         tools.analyze_recipe_for_tutorial,
         tools.generate_visual_tutorial,
-        tools.extract_recipe_from_context
     ],
 )

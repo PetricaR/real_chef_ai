@@ -11,6 +11,8 @@ MODEL = "gemini-2.0-flash"
 PROJECT_ID = "formare-ai"
 LOCATION = "europe-west4"
 
+
+
 # Shared AI client
 try:
     from google import genai
