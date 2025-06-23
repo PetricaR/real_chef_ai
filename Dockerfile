@@ -1,28 +1,37 @@
-FROM python:3.13-slim
+FROM python:3.11-slim
+
+# Set working directory
 WORKDIR /app
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create user
 RUN adduser --disabled-password --gecos "" myuser
 
+# Copy application files
 COPY . .
 
-# Create empty database files with proper permissions
-RUN touch /app/sessions.db && \
-    chmod 666 /app/sessions.db && \
-    touch /app/agent/sessions.db && \
-    chmod 666 /app/agent/sessions.db && \
-    chown -R myuser:myuser /app
+# Set ownership
+RUN chown -R myuser:myuser /app
 
-# SET PORT
-ENV PORT=8080
-ENV GOOGLE_APPLICATION_CREDENTIALS="/app/agent/elantra/auth/formare-ai-gcp.json"
-ENV PYTHONUNBUFFERED=1
+# Switch to user
+USER myuser
+
+# Set environment
 ENV PYTHONPATH=/app
 ENV PATH="/home/myuser/.local/bin:$PATH"
 
-USER myuser
-EXPOSE $PORT
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:$PORT/health || exit 1
 
-CMD ["sh", "-c", "uvicorn agent.main:app --host 0.0.0.0 --port $PORT"]
+# Start application
+CMD ["python", "main.py"]

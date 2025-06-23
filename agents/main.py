@@ -1,23 +1,64 @@
+# main.py - Cloud Run Optimized
 import os
+import sys
 import uvicorn
-from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+print("=== Starting BringoChef AI in Cloud Run ===")
 
-SESSION_DB_URL = "sqlite:///./sessions.db"
-ALLOWED_ORIGINS = ["http://localhost", "http://localhost:8080", "*"]
-SERVE_WEB_INTERFACE = True
+# Ensure current directory is in Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
-AGENT_DIR = os.path.join(APP_DIR)  # <- FIX
+print(f"Current directory: {current_dir}")
+print(f"Python path: {sys.path[:3]}...")
+print(f"Files in directory: {os.listdir(current_dir)}")
 
-app: FastAPI = get_fast_api_app(
-    agent_dir=AGENT_DIR,
-    session_db_url=SESSION_DB_URL,
-    allow_origins=ALLOWED_ORIGINS,
-    web=SERVE_WEB_INTERFACE,
-)
+# Verify agent exists before creating FastAPI app
+agent_dir = os.path.join(current_dir, "bringo_chef_ai_assistant")
+if os.path.exists(agent_dir):
+    print(f"✅ Agent directory found: {agent_dir}")
+    print(f"Agent files: {os.listdir(agent_dir)}")
+else:
+    print(f"❌ Agent directory not found: {agent_dir}")
+    sys.exit(1)
+
+# Test import before creating app
+try:
+    from bringo_chef_ai_assistant import root_agent
+    print(f"✅ Agent import successful: {root_agent.name}")
+except Exception as e:
+    print(f"❌ Agent import failed: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+
+# Create FastAPI app
+print("Creating FastAPI app...")
+try:
+    app = get_fast_api_app(
+        agents_dir=current_dir,  # Directory containing bringo_chef_ai_assistant/
+        allow_origins=["*"],
+        web=True,
+        trace_to_cloud=False,
+    )
+    print("✅ FastAPI app created successfully")
+except Exception as e:
+    print(f"❌ FastAPI app creation failed: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "healthy", 
+        "service": "bringo-chef-ai",
+        "agent": root_agent.name
+    }
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-
+    port = int(os.environ.get("PORT", 8080))
+    print(f"🚀 Starting server on 0.0.0.0:{port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
