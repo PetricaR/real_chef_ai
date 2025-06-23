@@ -1,17 +1,14 @@
-# tutorial/tools.py
+# recipe_creator/tools.py
 import logging
 import json
-import asyncio
-import re
 from datetime import datetime
-from google.adk.tools import ToolContext
+import calendar
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
-logger = logging.getLogger("tutorial_tools")
+logger = logging.getLogger("recipe_tools")
 
 # Shared configuration
-TEXT_MODEL = "gemini-2.0-flash"
-IMAGE_MODEL = "imagen-3.0-generate-002"
+MODEL = "gemini-2.0-flash"
 PROJECT_ID = "formare-ai"
 LOCATION = "europe-west4"
 
@@ -20,448 +17,323 @@ try:
     from google import genai
     from google.genai import types
     
-    client = genai.Client(
+    gemini_client = genai.Client(
         vertexai=True,
         project=PROJECT_ID,
         location=LOCATION
     )
-    logger.info("✅ Tutorial agent AI client initialized")
+    logger.info("✅ Recipe agent AI client initialized")
 except Exception as e:
     logger.error(f"❌ AI client failed: {e}")
-    client = None
+    gemini_client = None
 
-def _call_ai_text(prompt: str, temperature: float = 0.1) -> dict:
-    """Simplified AI call for text generation"""
-    if not client:
+def _call_ai(prompt: str) -> dict:
+    """Simplified AI call with higher token limit for recipes"""
+    if not gemini_client:
         return {"error": "AI client unavailable"}
     
     try:
-        response = client.models.generate_content(
-            model=TEXT_MODEL,
+        response = gemini_client.models.generate_content(
+            model=MODEL,
             contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
             config=types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=3000,
+                temperature=0.3,  # Moderate creativity for recipes
+                max_output_tokens=4000,  # More tokens for detailed recipes
                 response_mime_type="application/json"
             )
         )
         return json.loads(response.text)
     except Exception as e:
-        logger.error(f"AI text call failed: {e}")
+        logger.error(f"AI call failed: {e}")
         return {"error": str(e)}
 
-def extract_recipe_from_context(conversation_context: str = "") -> str:
-    """
-    Extract the most recent successful recipe creation from conversation context.
-    This enables auto-triggering of tutorial generation.
-    """
-    logger.info("🔍 Extracting recipe data from conversation context for auto-tutorial...")
-    
-    try:
-        if not conversation_context:
-            logger.info("📝 No conversation context provided")
-            return json.dumps({
-                "status": "no_recipe_found",
-                "message": "Am primit controlul pentru tutorial, dar nu găsesc datele rețetei în context. Te rog să îmi transmiți JSON-ul cu rețeta creată sau să creezi mai întâi o rețetă.",
-                "action_needed": "provide_recipe_data",
-                "searched_at": datetime.now().isoformat()
-            })
-        
-        # Enhanced patterns to match the actual recipe creator output structure
-        
-        # Pattern 1: Tool result with escaped JSON (most common case)
-        tool_result_pattern = r'create_recipe_with_context.*?tool returned result.*?\{\'result\':\s*\'([^\']+)\''
-        tool_matches = re.findall(tool_result_pattern, conversation_context, re.DOTALL)
-        
-        if tool_matches:
-            logger.info(f"✅ Found {len(tool_matches)} tool results")
-            for match in tool_matches:
-                try:
-                    # Unescape the JSON string
-                    unescaped = match.replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
-                    recipe_data = json.loads(unescaped)
-                    
-                    if recipe_data.get("status") == "success" and "recipe_data" in recipe_data:
-                        logger.info("✅ Successfully extracted recipe data from tool result")
-                        return json.dumps({
-                            "status": "success",
-                            "message": "Recipe data extracted from conversation context",
-                            "recipe_data": recipe_data,
-                            "auto_extracted": True,
-                            "extracted_at": datetime.now().isoformat()
-                        })
-                except json.JSONDecodeError:
-                    continue
-        
-        # Pattern 2: Direct JSON patterns in conversation
-        json_patterns = [
-            r'\{\s*"status":\s*"success"[^{}]*"recipe_data":\s*\[[^\]]+\][^{}]*\}',
-            r'"status":\s*"success"[^}]*"context_used"[^}]*"recipe_data":\s*\[[^\]]+\]'
-        ]
-        
-        for pattern in json_patterns:
-            matches = re.findall(pattern, conversation_context, re.DOTALL)
-            if matches:
-                for match in matches:
-                    try:
-                        if not match.startswith('{'):
-                            match = '{' + match + '}'
-                        
-                        recipe_data = json.loads(match)
-                        if recipe_data.get("status") == "success" and "recipe_data" in recipe_data:
-                            logger.info("✅ Successfully extracted recipe data from JSON pattern")
-                            return json.dumps({
-                                "status": "success",
-                                "message": "Recipe data extracted from conversation context",
-                                "recipe_data": recipe_data,
-                                "auto_extracted": True,
-                                "extracted_at": datetime.now().isoformat()
-                            })
-                    except json.JSONDecodeError:
-                        continue
-        
-        # If no recipe found, return appropriate response
-        logger.info("📝 No recipe data found in context - requesting manual input")
-        return json.dumps({
-            "status": "no_recipe_found",
-            "message": "Am primit controlul pentru tutorial, dar nu găsesc datele rețetei în context. Te rog să îmi transmiți JSON-ul cu rețeta creată sau să creezi mai întâi o rețetă.",
-            "action_needed": "provide_recipe_data",
-            "searched_at": datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Error extracting recipe from context: {e}")
-        return json.dumps({
-            "status": "error",
-            "message": f"Error extracting recipe data: {str(e)}",
-            "action_needed": "provide_recipe_data_manually"
-        })
+def _get_current_season():
+    """Get current season"""
+    month = datetime.now().month
+    if month in [12, 1, 2]:
+        return "winter"
+    elif month in [3, 4, 5]:
+        return "spring"
+    elif month in [6, 7, 8]:
+        return "summer"
+    else:
+        return "autumn"
 
-def analyze_recipe_for_tutorial(recipe_json: str) -> str:
+def create_comprehensive_recipe(user_request: str, product_search_results_json: str) -> str:
     """
-    Analyze an already created recipe to determine tutorial suitability.
-    Enhanced to handle auto-extracted recipe data.
+    Create a comprehensive recipe from product search results.
     """
-    logger.info("🧠 Analyzing recipe for tutorial creation...")
+    logger.info(f"👨‍🍳 Creating recipe for: {user_request[:50]}...")
     
     try:
-        recipe_data = json.loads(recipe_json) if recipe_json else {}
+        product_search_results = json.loads(product_search_results_json)
     except:
         return json.dumps({
             "status": "error",
-            "message": "Invalid recipe JSON provided"
+            "message": "Invalid product search results JSON"
         })
     
-    # Handle auto-extracted data
-    if recipe_data.get("auto_extracted"):
-        logger.info("📥 Processing auto-extracted recipe data")
-        recipe_data = recipe_data.get("recipe_data", {})
+    # Extract available products
+    available_products = []
+    search_results = product_search_results.get('search_results', [])
+    for result in search_results:
+        if result.get('status') == 'success':
+            products = result.get('products', [])
+            for product in products[:2]:  # Take top 2 products per ingredient
+                available_products.append({
+                    'ingredient': result.get('original_ingredient', ''),
+                    'product_name': product['name'],
+                    'price': product['price'],
+                    'available': product['available']
+                })
     
-    if recipe_data.get("status") != "success":
-        return json.dumps({
-            "status": "error",
-            "message": "Invalid or failed recipe data provided"
-        })
-    
-    # Extract recipe information - handle the array structure from recipe_creator
-    recipe_items = recipe_data.get("recipe_data", [])
-    if isinstance(recipe_items, list) and len(recipe_items) > 0:
-        recipe_info = recipe_items[0].get("recipe", {})
-        cost_analysis = {"total_cost_ron": "N/A", "cost_per_serving_ron": "N/A"}
-    else:
-        # Fallback structure
-        recipe_info = recipe_data.get("recipe_data", {}).get("recipe", {})
-        cost_analysis = recipe_data.get("recipe_data", {}).get("cost_analysis", {})
-    
-    if not recipe_info:
-        return json.dumps({
-            "status": "error",
-            "message": "No recipe information found in data"
-        })
-    
-    recipe_name = recipe_info.get("name", "Unknown Recipe")
-    ingredients = recipe_info.get("ingredients", [])
-    instructions = recipe_info.get("instructions", [])
-    cuisine_type = recipe_info.get("cuisine_type", "international")
+    current_season = _get_current_season()
     
     prompt = f"""
-    Analyze this specific recipe for visual tutorial creation suitability:
+    Create a complete recipe for this request: "{user_request}"
     
-    Recipe Name: {recipe_name}
-    Cuisine Type: {cuisine_type}
-    Ingredients: {json.dumps(ingredients, indent=2)}
-    Instructions: {json.dumps(instructions, indent=2)}
+    Available products:
+    {json.dumps(available_products, indent=2)}
     
-    Evaluate this SPECIFIC recipe for creating a 7-step visual cooking tutorial. Return JSON:
+    Current season: {current_season}
+    
+    Create a practical, detailed recipe in alwasy in {user_request} languagec. Return JSON:
     {{
-        "tutorial_suitability": {{
-            "visual_score": <1-10 based on this specific recipe>,
-            "learning_value": <1-10 for this recipe's techniques>,
-            "step_clarity": <1-10 how clear steps can be shown>,
-            "overall_score": <1-10 average>,
-            "suitability": "excellent|good|fair|poor"
+        "recipe": {{
+            "name": "Nume rețetă cu emoji 🍽️",
+            "description": "Descriere atrăgătoare 2-3 propoziții",
+            "cuisine_type": "românească|italiană|etc",
+            "difficulty": "ușor|mediu|avansat", 
+            "prep_time_minutes": 15,
+            "cook_time_minutes": 30,
+            "total_time_minutes": 45,
+            "servings": 4,
+            "ingredients": [
+                {{
+                    "name": "ingredient",
+                    "quantity": "cantitate",
+                    "unit": "unitate",
+                    "product_recommendation": "produsul specific găsit",
+                    "price_ron": preț,
+                    "preparation": "cum se pregătește"
+                }}
+            ],
+            "equipment": ["ustensile necesare"],
+            "instructions": [
+                {{
+                    "step": 1,
+                    "description": "Instrucțiune detaliată pas cu pas",
+                    "time_minutes": 5,
+                    "technique": "tehnica folosită",
+                    "tips": "sfat profesional"
+                }}
+            ],
+            "nutrition_per_serving": {{
+                "calories": calorii_estimate,
+                "protein_g": proteine,
+                "carbs_g": carbohidrați,
+                "fat_g": grăsimi,
+                "fiber_g": fibre
+            }},
+            "serving_suggestions": ["cum se servește"],
+            "storage": "cum se păstrează",
+            "variations": ["variații posibile"],
+            "chef_notes": ["secrete profesionale"]
         }},
-        "tutorial_advantages": {{
-            "visual_appeal": "Why THIS recipe is visually interesting for tutorial",
-            "learning_techniques": ["specific techniques this recipe teaches"],
-            "step_visibility": "How well each step of THIS recipe can be demonstrated",
-            "skill_development": "What cooking skills THIS recipe develops"
-        }},
-        "tutorial_challenges": {{
-            "difficult_steps": ["steps in THIS recipe that might be hard to show"],
-            "timing_issues": ["time-related challenges for THIS recipe"],
-            "equipment_considerations": ["equipment needed for THIS recipe"]
-        }},
-        "tutorial_recommendations": {{
-            "best_angles": ["recommended camera angles for THIS recipe"],
-            "key_moments": ["most important moments to capture in THIS recipe"],
-            "tip_opportunities": ["good moments for cooking tips in THIS recipe"]
+        "cost_analysis": {{
+            "total_cost_ron": cost_total,
+            "cost_per_serving_ron": cost_pe_porție,
+            "budget_efficiency": "foarte bun|bun|moderat|scump"
         }}
     }}
-    
-    Focus specifically on THIS recipe: {recipe_name}, not generic cooking advice.
     """
     
     try:
-        result = _call_ai_text(prompt)
+        result = _call_ai(prompt)
         if "error" in result:
-            # Provide a reasonable default analysis based on the actual recipe
-            result = {
-                "tutorial_suitability": {
-                    "visual_score": 7,
-                    "learning_value": 8,
-                    "step_clarity": 7,
-                    "overall_score": 7.5,
-                    "suitability": "good"
-                },
-                "tutorial_advantages": {
-                    "visual_appeal": f"Recipe {recipe_name} shows clear visual progression through cooking stages",
-                    "learning_techniques": ["ingredient preparation", "cooking techniques", "presentation"],
-                    "step_visibility": "Each cooking step shows distinct visual changes",
-                    "skill_development": f"Develops skills needed for {cuisine_type} cuisine"
-                },
-                "tutorial_challenges": {
-                    "difficult_steps": ["timing coordination"],
-                    "timing_issues": ["some steps may require real-time demonstration"],
-                    "equipment_considerations": ["standard kitchen equipment needed"]
-                },
-                "tutorial_recommendations": {
-                    "best_angles": ["overhead view for preparation", "side view for cooking", "close-up for details"],
-                    "key_moments": ["ingredient setup", "key cooking techniques", "final presentation"],
-                    "tip_opportunities": ["ingredient tips", "technique guidance", "presentation suggestions"]
-                }
-            }
+            raise ValueError(result["error"])
             
-        logger.info("✅ Recipe tutorial analysis completed")
+        logger.info("✅ Recipe creation successful")
         return json.dumps({
             "status": "success",
-            "recipe_name": recipe_name,
-            "cuisine_type": cuisine_type,
-            "analysis": result,
-            "analyzed_at": datetime.now().isoformat()
+            "user_request": user_request,
+            "recipe_data": result,
+            "available_products_used": len(available_products),
+            "created_at": datetime.now().isoformat()
         }, ensure_ascii=False, indent=2)
         
     except Exception as e:
-        logger.error(f"❌ Recipe analysis failed: {e}")
+        logger.error(f"❌ Recipe creation failed: {e}")
         return json.dumps({
             "status": "error",
-            "message": str(e)
+            "message": str(e),
+            "fallback_recipe": {
+                "name": "Rețetă simplă",
+                "description": "O rețetă de bază bazată pe ingredientele disponibile",
+                "instructions": ["Combinați ingredientele găsite", "Gătiți după preferințe"]
+            }
         })
 
-async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) -> str:
+def create_recipe_with_context(user_request: str,
+                             product_search_results_json: str,
+                             parameters_json: str,
+                             cultural_context_json: str,
+                             ingredient_validations_json: str) -> str:
     """
-    Generate exactly 7 detailed tutorial images DYNAMICALLY from any recipe.
-    Enhanced to handle auto-extracted recipe data.
+    Create recipe with full context adaptation.
     """
-    logger.info("🎨 Generating DYNAMIC 7-step visual tutorial from actual recipe...")
+    logger.info(f"🌍 Creating contextualized recipe for: {user_request[:50]}...")
     
     try:
-        recipe_data = json.loads(recipe_json)
+        product_search_results = json.loads(product_search_results_json)
     except:
         return json.dumps({
             "status": "error",
-            "message": "Invalid recipe JSON provided"
+            "message": "Invalid product search results JSON"
         })
     
-    # Handle auto-extracted data
-    if recipe_data.get("auto_extracted"):
-        logger.info("📥 Processing auto-extracted recipe data for tutorial generation")
-        recipe_data = recipe_data.get("recipe_data", {})
+    # Parse all contexts
+    parameters = {}
+    cultural_context = {}
+    ingredient_validations = {}
     
-    if recipe_data.get("status") != "success":
-        return json.dumps({
-            "status": "error", 
-            "message": "Recipe creation failed, cannot create tutorial"
-        })
+    try:
+        if parameters_json:
+            parameters = json.loads(parameters_json)
+    except:
+        logger.warning("Invalid parameters JSON")
+        
+    try:
+        if cultural_context_json:
+            cultural_context = json.loads(cultural_context_json)
+    except:
+        logger.warning("Invalid cultural context JSON")
+        
+    try:
+        if ingredient_validations_json:
+            ingredient_validations = json.loads(ingredient_validations_json)
+    except:
+        logger.warning("Invalid ingredient validations JSON")
     
-    # Extract recipe information - handle the array structure from recipe_creator
-    recipe_items = recipe_data.get("recipe_data", [])
-    if isinstance(recipe_items, list) and len(recipe_items) > 0:
-        recipe_info = recipe_items[0].get("recipe", {})
-        cost_analysis = {"total_cost_ron": "N/A", "cost_per_serving_ron": "N/A"}
-    else:
-        # Fallback structure
-        recipe_info = recipe_data.get("recipe_data", {}).get("recipe", {})
-        cost_analysis = recipe_data.get("recipe_data", {}).get("cost_analysis", {})
+    # Extract context information
+    context_info = ""
     
-    if not recipe_info:
-        return json.dumps({
-            "status": "error",
-            "message": "No recipe information found in data"
-        })
+    # Language and cultural info
+    if cultural_context.get("status") == "success":
+        analysis_list = cultural_context.get("analysis", [])
+        # FIX: Handle the list structure correctly
+        if analysis_list and isinstance(analysis_list, list):
+            analysis = analysis_list[0]  # Take first analysis result
+        else:
+            analysis = {}
+            
+        language = analysis.get("language", {})
+        location = analysis.get("location", {})
+        context_info += f"""
+        Limbă: {language.get('name', 'Romanian')}
+        Țară: {location.get('country', 'Romania')}
+        Context cultural: {analysis.get('cultural_indicators', {})}
+        """
     
-    recipe_name = recipe_info.get("name", "Unknown Recipe")
-    ingredients = recipe_info.get("ingredients", [])
-    instructions = recipe_info.get("instructions", [])
-    cuisine_type = recipe_info.get("cuisine_type", "international")
+    # Cooking parameters
+    if parameters.get("status") == "success":
+        extracted = parameters.get("extracted_parameters", {})
+        budget = extracted.get("budget", {})
+        servings = extracted.get("servings", {})
+        time_info = extracted.get("time", {})
+        dietary = extracted.get("dietary", {})
+        
+        context_info += f"""
+        Porții: {servings.get('count', 4)}
+        Buget: {budget.get('amount_ron', 50)} RON
+        Timp disponibil: {time_info.get('minutes', 60)} minute
+        Restricții dietetice: {dietary.get('restrictions', [])}
+        """
     
-    logger.info(f"Creating DYNAMIC tutorial for: {recipe_name}")
+    # Available products
+    available_products = []
+    search_results = product_search_results.get('search_results', [])
+    for result in search_results:
+        if result.get('status') == 'success':
+            products = result.get('products', [])
+            for product in products[:2]:
+                available_products.append({
+                    'ingredient': result.get('original_ingredient', ''),
+                    'product_name': product['name'],
+                    'price': product['price']
+                })
     
-    # DYNAMIC tutorial steps generation based on the actual recipe
-    tutorial_prompt = f"""
-    Create exactly 7 detailed tutorial steps for this SPECIFIC recipe: {recipe_name}
+    current_season = _get_current_season()
     
-    Recipe Details:
-    Cuisine: {cuisine_type}
-    Ingredients: {json.dumps(ingredients, indent=2)}
-    Instructions: {json.dumps(instructions, indent=2)}
+    prompt = f"""
+    Create a culturally adapted, personalized recipe for: "{user_request}"
     
-    Create 7 detailed image descriptions that follow this structure for THIS specific recipe:
-    1. **Ingredient Setup** - All ingredients for {recipe_name} laid out and organized
-    2. **Initial Preparation** - Chopping, measuring, prep work specific to {recipe_name}
-    3. **Cooking Start** - Initial cooking setup for {recipe_name}
-    4. **Main Cooking Stage** - Primary technique for {recipe_name}
-    5. **Combination/Development** - Adding ingredients, building flavors for {recipe_name}
-    6. **Finishing Stage** - Final touches, plating prep for {recipe_name}
-    7. **Completed Dish** - Final {recipe_name} presentation
+    Context:
+    {context_info}
     
-    Return JSON with exactly 7 detailed, SPECIFIC image descriptions:
+    Available products:
+    {json.dumps(available_products, indent=2)}
+    
+    Season: {current_season}
+    
+    Adapt the recipe to:
+    - Cultural cooking traditions and language preferences
+    - Budget and serving constraints
+    - Time limitations
+    - Dietary restrictions
+    - Seasonal considerations
+    
+    Return JSON with same structure as create_comprehensive_recipe but with:
+    - Culturally appropriate cooking techniques
+    - Budget-optimized ingredient usage
+    - Time-efficient preparation methods
+    - Dietary adaptations
+    - Cultural serving suggestions
+    
     {{
-        "tutorial_steps": [
-            "Detailed description for step 1 specific to {recipe_name}...",
-            "Detailed description for step 2 specific to {recipe_name}...",
-            "Detailed description for step 3 specific to {recipe_name}...",
-            "Detailed description for step 4 specific to {recipe_name}...",
-            "Detailed description for step 5 specific to {recipe_name}...",
-            "Detailed description for step 6 specific to {recipe_name}...",
-            "Detailed description for step 7 specific to {recipe_name}..."
-        ]
+        "recipe": {{
+            "name": "Culturally appropriate name with emoji",
+            "cultural_authenticity": "traditional|adapted|fusion",
+            "budget_optimizations": ["how recipe saves money"],
+            "time_optimizations": ["how recipe saves time"],
+            "cultural_notes": ["cultural significance and traditions"],
+            ... (same structure as comprehensive recipe)
+        }},
+        "adaptations_made": {{
+            "cultural": ["cultural adaptations"],
+            "budget": ["budget adaptations"], 
+            "time": ["time adaptations"],
+            "dietary": ["dietary adaptations"]
+        }}
     }}
-    
-    Each description should be detailed and specific to THIS recipe: {recipe_name}, not generic.
     """
     
     try:
-        tutorial_result = _call_ai_text(tutorial_prompt)
-        if "error" in tutorial_result:
-            raise ValueError(f"Failed to generate tutorial steps: {tutorial_result['error']}")
+        result = _call_ai(prompt)
+        if "error" in result:
+            raise ValueError(result["error"])
             
-        tutorial_steps = tutorial_result.get("tutorial_steps", [])
+        logger.info("✅ Contextualized recipe creation successful")
+        return json.dumps({
+            "status": "success",
+            "user_request": user_request,
+            "context_used": {
+                "parameters": bool(parameters),
+                "cultural_context": bool(cultural_context),
+                "ingredient_validations": bool(ingredient_validations)
+            },
+            "recipe_data": result,
+            "created_at": datetime.now().isoformat()
+        }, ensure_ascii=False, indent=2)
         
-        if len(tutorial_steps) != 7:
-            raise ValueError(f"Expected 7 tutorial steps, got {len(tutorial_steps)}")
-            
     except Exception as e:
-        logger.error(f"Failed to generate dynamic tutorial steps: {e}")
-        # Dynamic fallback based on actual recipe name and ingredients
-        ingredient_names = [ing.get("name", "") for ing in ingredients if ing.get("name")]
-        tutorial_steps = [
-            f"All ingredients for {recipe_name} laid out and organized: {', '.join(ingredient_names[:5])} and other ingredients on a clean kitchen counter",
-            f"Preparation stage for {recipe_name}: chopping and measuring ingredients according to recipe requirements",
-            f"Initial cooking setup for {recipe_name}: proper equipment preparation and heat setup",
-            f"Main cooking technique being demonstrated for {recipe_name} using the prepared ingredients",
-            f"Adding and combining ingredients during the cooking process for {recipe_name}",
-            f"Final cooking stage and plating preparation for {recipe_name}",
-            f"Completed {recipe_name} beautifully plated and ready to serve"
-        ]
-    
-    # Generate images for each tutorial step
-    safe_name = "".join(c for c in recipe_name.lower() if c.isalnum() or c in ['_', '-'])[:20]
-    successful_files = []
-    
-    step_names = [
-        "01_ingredient_setup",
-        "02_preparation", 
-        "03_cooking_start",
-        "04_main_cooking",
-        "05_combination_stage",
-        "06_finishing_touches",
-        "07_completed_dish"
-    ]
-    
-    for i, (step, step_name) in enumerate(zip(tutorial_steps, step_names)):
-        try:
-            image_prompt = f"""
-            Professional cooking tutorial photography for {recipe_name} ({cuisine_type} cuisine) - Step {i+1} of 7:
-            
-            {step}
-            
-            Style: Clean, educational cooking photography with professional kitchen lighting.
-            Show clear view of ingredients, techniques, and cooking progress for {recipe_name}.
-            Consistent tutorial style with good detail visibility.
-            High-quality food photography suitable for cooking instruction.
-            {cuisine_type} cuisine authentic presentation and cooking methods.
-            """
-            
-            filename = f"{safe_name}_{step_name}.png"
-            
-            # Generate image
-            if client:
-                try:
-                    response = client.models.generate_images(
-                        model=IMAGE_MODEL,
-                        prompt=image_prompt,
-                        config={'number_of_images': 1}
-                    )
-                    
-                    if response.generated_images:
-                        await tool_context.save_artifact(
-                            filename,
-                            types.Part.from_bytes(
-                                data=response.generated_images[0].image.image_bytes,
-                                mime_type='image/png'
-                            )
-                        )
-                        successful_files.append(filename)
-                        logger.info(f"✅ Generated tutorial step {i+1}/7: {step_name}")
-                    
-                    # Delay between generations to avoid rate limits
-                    if i < len(tutorial_steps) - 1:
-                        await asyncio.sleep(2)
-                except Exception as e:
-                    logger.error(f"❌ Failed to generate image for step {i+1}: {e}")
-                    continue
-            else:
-                logger.error(f"❌ No AI client available for step {i+1}")
-                continue
-                    
-        except Exception as e:
-            logger.error(f"❌ Failed to generate image for step {i+1}: {e}")
-            continue
-    
-    # Compile final result
-    result = {
-        "status": "success",
-        "recipe_name": recipe_name,
-        "cuisine_type": cuisine_type,
-        "tutorial_type": "7-step dynamic visual cooking tutorial",
-        "steps_generated": len(successful_files),
-        "total_steps": 7,
-        "generated_files": successful_files,
-        "tutorial_steps": tutorial_steps,
-        "step_names": step_names[:len(successful_files)],
-        "recipe_details": {
-            "total_cost_ron": cost_analysis.get("total_cost_ron", "N/A"),
-            "cost_per_serving_ron": cost_analysis.get("cost_per_serving_ron", "N/A"),
-            "prep_time": recipe_info.get("prep_time_minutes", "N/A"),
-            "cook_time": recipe_info.get("cook_time_minutes", "N/A"),
-            "servings": recipe_info.get("servings", "N/A"),
-            "difficulty": recipe_info.get("difficulty", "N/A")
-        },
-        "original_recipe": recipe_info,
-        "cost_analysis": cost_analysis,
-        "generated_at": datetime.now().isoformat()
-    }
-    
-    logger.info(f"✅ DYNAMIC tutorial completed: {len(successful_files)}/7 steps for {recipe_name}")
-    return json.dumps(result, indent=2, ensure_ascii=False)
+        logger.error(f"❌ Contextualized recipe creation failed: {e}")
+        return json.dumps({
+            "status": "error",
+            "message": str(e),
+            "context_used": {
+                "parameters": bool(parameters),
+                "cultural_context": bool(cultural_context),
+                "ingredient_validations": bool(ingredient_validations)
+            }
+        })
