@@ -90,8 +90,8 @@ Cultural Analysis → Parameters → AUTO-SELECTED Ingredients → Real Products
 MOTTO: "Inteligență → Automatizare → Rezultate Frumoase"
 """
 
-bringo_coordinator = LlmAgent(
-    name="bringo_coordinator",
+bringo_chef_ai_assistant = LlmAgent(
+    name="bringo_chef_ai_assistant",
     description="Coordonator AI inteligent și conversațional pentru ecosistemul culinar BringoChef cu prezentări frumoase și tutoriale vizuale",
     model=MODEL,
     global_instruction=BRINGO_CHEF_COORDINATOR_PROMPT,
@@ -106,4 +106,4 @@ bringo_coordinator = LlmAgent(
     ]
 )
 
-root_agent = bringo_coordinator
+root_agent = bringo_chef_ai_assistant
