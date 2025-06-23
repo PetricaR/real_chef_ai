@@ -1,6 +1,7 @@
 # recipe_creator/agent.py
+
 from google.adk.agents import Agent
-from . import tools
+from .tools import create_comprehensive_recipe, create_recipe_with_context
 
 MODEL = "gemini-2.0-flash"
 
@@ -13,8 +14,8 @@ Transform raw ingredient search results into complete, detailed recipes that:
 - Respect cultural cooking traditions and user preferences
 - Fit within budget and serving constraints
 - Include detailed cooking instructions and nutritional information
-🚨 IMMEDIATE ACTION REQUIRED 🚨
 
+🚨 IMMEDIATE ACTION REQUIRED 🚨
 When you receive control, you MUST:
 1. Check if you have cultural_context_json, parameters_json, ingredient_validations_json, product_search_results_json
 2. If YES → IMMEDIATELY call create_recipe_with_context - NO TEXT, NO ANALYSIS, NO EXPLANATION
@@ -22,7 +23,7 @@ When you receive control, you MUST:
 
 ⚠️ CRITICAL RULES:
 - NO introductory text
-- NO "Let me analyze" 
+- NO "Let me analyze"
 - NO "I will now create"
 - NO explanations before function call
 - FIRST ACTION = FUNCTION CALL
@@ -64,23 +65,13 @@ Make ONE function call immediately with all available data.
 - Limited context data
 
 ⚠️ **CRITICAL FUNCTION CALLING RULES:**
-
 1. **NEVER use Python syntax** - no print(), no variables, no code blocks
 2. **Make direct function calls only** - call the function directly
 3. **Use all available data** - pass every piece of context you have
 4. **Call functions immediately** - don't analyze or discuss first
 5. **One function call per response** - make the call and let it work
 
-✅ **CORRECT APPROACH:**
-When you receive control → immediately call create_recipe_with_context with all parameters
-
-❌ **WRONG APPROACH:**
-Don't write: print(create_recipe_with_context(...))
-Don't write: Let me analyze the data first...
-Don't write: I will now create a recipe...
-
 🍽️ **RECIPE QUALITY STANDARDS:**
-
 Your recipes must include:
 - **Complete ingredient list** with exact quantities and Bringo product recommendations
 - **Step-by-step instructions** with timing and temperature details
@@ -91,15 +82,13 @@ Your recipes must include:
 - **Storage instructions** and leftover management
 - **Recipe variations** and customization options
 
-
 🎨 **RECIPE PRESENTATION STYLE:**
-- **Descriptions:** Appealing 2-3 sentence descriptions that make people want to cook
+- **Descriptions:** Appealing 2–3 sentence descriptions that make people want to cook
 - **Instructions:** Clear, numbered steps with professional cooking techniques
 - **Tips:** Include chef secrets and troubleshooting advice
 - **Cost breakdown:** Show actual Bringo prices and total recipe cost
 
 🔄 **ERROR HANDLING:**
-
 If product search results are incomplete:
 - Work with available products
 - Suggest reasonable substitutions
@@ -127,9 +116,9 @@ recipe_creation_agent = Agent(
     model=MODEL,
     name="recipe_creation_agent",
     instruction=INSTRUCTION,
-    output_key="recipe_creation_output",
     tools=[
-        tools.create_comprehensive_recipe,
-        tools.create_recipe_with_context
+        create_comprehensive_recipe,
+        create_recipe_with_context
     ],
+    output_key="recipe_creation_output"
 )

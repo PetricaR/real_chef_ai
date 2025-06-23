@@ -8,7 +8,7 @@ from .sub_agents.recipe_creator import recipe_creation_agent
 from .sub_agents.tutorial import tutorial_agent
 from .sub_agents.conversation import conversation_agent
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-2.0-flash"
 BRINGO_CHEF_COORDINATOR_PROMPT = """
 You are the BringoChef AI Coordinator - an intelligent culinary assistant ecosystem for Romanian cooking with FULL AUTOMATION and minimal user interaction.
 

@@ -56,8 +56,18 @@ def analyze_recipe_for_tutorial(recipe_json: str) -> str:
     logger.info("🧠 Analyzing recipe for tutorial creation...")
     
     try:
-        recipe_data = json.loads(recipe_json) if recipe_json else {}
-    except:
+        recipe_data = json.loads(recipe_json)
+    except json.JSONDecodeError:
+        # Attempt to unescape if it's a string literal containing escaped JSON
+        try:
+            unescaped_json_string = recipe_json.encode('utf-8').decode('unicode_escape')
+            recipe_data = json.loads(unescaped_json_string)
+        except Exception as e_unescape:
+            logger.error(f"Failed to unescape and load JSON: {e_unescape}")
+            # Fallback to empty dict if unescaping also fails
+            recipe_data = {}
+    except Exception as e:
+        logger.error(f"Failed to load JSON: {e}")
         return json.dumps({
             "status": "error",
             "message": "Invalid recipe JSON provided"
@@ -69,14 +79,10 @@ def analyze_recipe_for_tutorial(recipe_json: str) -> str:
             "message": "Invalid or failed recipe data provided"
         })
     
-    # FIX: Extract recipe information from the correct structure
-    recipe_data_list = recipe_data.get("recipe_data", [])
-    recipe_info = {}
-    cost_analysis = {}
-    if recipe_data_list and isinstance(recipe_data_list, list):
-        recipe_item = recipe_data_list[0]
-        recipe_info = recipe_item.get("recipe", {})
-        cost_analysis = recipe_item.get("cost_analysis", {})
+    # Corrected extraction logic based on actual recipe_data structure
+    recipe_content = recipe_data.get("recipe_data", {})
+    recipe_info = recipe_content.get("recipe", {})
+    cost_analysis = recipe_content.get("cost_analysis", {})
     
     if not recipe_info:
         return json.dumps({
@@ -182,7 +188,16 @@ async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) 
     
     try:
         recipe_data = json.loads(recipe_json)
-    except:
+    except json.JSONDecodeError:
+        # Attempt to unescape if it's a string literal containing escaped JSON
+        try:
+            unescaped_json_string = recipe_json.encode('utf-8').decode('unicode_escape')
+            recipe_data = json.loads(unescaped_json_string)
+        except Exception as e_unescape:
+            logger.error(f"Failed to unescape and load JSON: {e_unescape}")
+            recipe_data = {}
+    except Exception as e:
+        logger.error(f"Failed to load JSON: {e}")
         return json.dumps({
             "status": "error",
             "message": "Invalid recipe JSON provided"
@@ -194,15 +209,10 @@ async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) 
             "message": "Recipe creation failed, cannot create tutorial"
         })
     
-    # FIX: Extract recipe information from the correct structure
-    # With this:
-    recipe_data_list = recipe_data.get("recipe_data", [])
-    recipe_info = {}
-    cost_analysis = {}
-    if recipe_data_list and isinstance(recipe_data_list, list):
-        recipe_item = recipe_data_list[0]
-        recipe_info = recipe_item.get("recipe", {})
-        cost_analysis = recipe_item.get("cost_analysis", {})
+    # Corrected extraction logic based on actual recipe_data structure
+    recipe_content = recipe_data.get("recipe_data", {})
+    recipe_info = recipe_content.get("recipe", {})
+    cost_analysis = recipe_content.get("cost_analysis", {})
     
     if not recipe_info:
         return json.dumps({
