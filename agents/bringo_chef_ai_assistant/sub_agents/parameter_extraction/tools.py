@@ -123,9 +123,11 @@ def extract_parameters_with_culture(user_request: str, cultural_context_json: st
         cultural_data = json.loads(cultural_context_json)
         
         # FIX: Handle the list structure correctly
-        analysis_list = cultural_data.get("analysis", [])
-        if analysis_list and isinstance(analysis_list, list):
-            analysis = analysis_list[0]  # Take first analysis result
+        analysis_data = cultural_data.get("analysis", {})
+        if isinstance(analysis_data, list) and analysis_data:
+            analysis = analysis_data[0]
+        elif isinstance(analysis_data, dict):
+            analysis = analysis_data
         else:
             analysis = {}
         

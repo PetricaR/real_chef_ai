@@ -71,11 +71,12 @@ def analyze_recipe_for_tutorial(recipe_json: str) -> str:
     
     # FIX: Extract recipe information from the correct structure
     recipe_data_list = recipe_data.get("recipe_data", [])
+    recipe_info = {}
+    cost_analysis = {}
     if recipe_data_list and isinstance(recipe_data_list, list):
-        recipe_info = recipe_data_list[0].get("recipe", {})
-    else:
-        recipe_info = {}
-    cost_analysis = recipe_data.get("recipe_data", {}).get("cost_analysis", {})
+        recipe_item = recipe_data_list[0]
+        recipe_info = recipe_item.get("recipe", {})
+        cost_analysis = recipe_item.get("cost_analysis", {})
     
     if not recipe_info:
         return json.dumps({
@@ -196,11 +197,12 @@ async def generate_visual_tutorial(recipe_json: str, tool_context: ToolContext) 
     # FIX: Extract recipe information from the correct structure
     # With this:
     recipe_data_list = recipe_data.get("recipe_data", [])
+    recipe_info = {}
+    cost_analysis = {}
     if recipe_data_list and isinstance(recipe_data_list, list):
-        recipe_info = recipe_data_list[0].get("recipe", {})
-    else:
-        recipe_info = {}
-    cost_analysis = recipe_data.get("recipe_data", {}).get("cost_analysis", {})
+        recipe_item = recipe_data_list[0]
+        recipe_info = recipe_item.get("recipe", {})
+        cost_analysis = recipe_item.get("cost_analysis", {})
     
     if not recipe_info:
         return json.dumps({

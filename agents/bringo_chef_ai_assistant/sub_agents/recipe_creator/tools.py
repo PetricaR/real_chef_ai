@@ -222,8 +222,11 @@ def create_recipe_with_context(user_request: str,
     if cultural_context.get("status") == "success":
         analysis_list = cultural_context.get("analysis", [])
         # FIX: Handle the list structure correctly
-        if analysis_list and isinstance(analysis_list, list):
-            analysis = analysis_list[0]  # Take first analysis result
+        analysis_data = cultural_context.get("analysis", {})
+        if isinstance(analysis_data, list) and analysis_data:
+            analysis = analysis_data[0]
+        elif isinstance(analysis_data, dict):
+            analysis = analysis_data
         else:
             analysis = {}
             
@@ -298,6 +301,11 @@ def create_recipe_with_context(user_request: str,
             "time_optimizations": ["how recipe saves time"],
             "cultural_notes": ["cultural significance and traditions"],
             ... (same structure as comprehensive recipe)
+        }},
+        "cost_analysis": {{
+            "total_cost_ron": cost_total,
+            "cost_per_serving_ron": cost_pe_porție,
+            "budget_efficiency": "foarte bun|bun|moderat|scump"
         }},
         "adaptations_made": {{
             "cultural": ["cultural adaptations"],
