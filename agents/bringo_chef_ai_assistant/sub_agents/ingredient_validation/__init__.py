@@ -1,17 +1,7 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""Domain_create_agent: for suggesting meanigful DNS domain"""
+# agents/bringo_chef_ai_assistant/sub_agents/ingredient_validation/__init__.py
+# Ingredient Validation Sub-Agent Module
+# Exports ingredient validation agent for BringoChef AI system
 
 from .agent import ingredient_validation_agent
+
+__all__ = ['ingredient_validation_agent']
